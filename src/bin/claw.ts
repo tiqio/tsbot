@@ -7,6 +7,7 @@
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { globalSessionManager } from "../context/session";
+import { loadSession, saveSession } from "../context/session-store";
 import { AgentEngine } from "../engine/loop";
 import { TerminalReporter } from "../engine/terminal-reporter";
 import { CostTracker } from "../observability/tracker";
@@ -21,11 +22,12 @@ const USAGE = `tsbot —— 极简智能体驾驭引擎（TypeScript / Bun 版�
 
 用法:
   bun run claw --prompt "你的任务" [选项]
+  bun run claw -prompt "你的任务" -session t1      # 单横线也认（Go flag 风格）
 
 选项:
   --prompt <text>     要交给 Agent 执行的任务（必填）
   --dir <path>        工作区目录，默认当前目录
-  --session <id>      会话 ID，默认 cli_default_session
+  --session <id>      会话 ID，默认 cli_default_session；同 id 再跑一次会接着上次的上下文
   --provider <kind>   anthropic | zhipu-anthropic | openai | zhipu-openai | mock
                       默认按环境变量自动推断
   --model <name>      覆盖默认模型
@@ -35,11 +37,34 @@ const USAGE = `tsbot —— 极简智能体驾驭引擎（TypeScript / Bun 版�
   --help              显示本帮助
 
 示例:
-  bun run claw --prompt "读一下 nginx.conf，找出 502 的原因" --dir ./workspace
-  bun run claw --plan --prompt "把 workspace 里的 notes.md 升级成 v2.0.0 并补一段变更日志"
+  bun run claw -prompt "读一下 nginx.conf，找出 502 的原因" -dir ./workspace -session t1
+  bun run claw -plan -prompt "把 notes.md 升级成 v2.0.0 并补一段变更日志" -dir ./workspace -session t2
 `;
 
+/** Go 的 flag 包两种横线都认，这里把 -session 归一成 --session 再交给 parseArgs */
+const LONG_OPTIONS = new Set([
+  "prompt",
+  "dir",
+  "provider",
+  "model",
+  "session",
+  "thinking",
+  "plan",
+  "max-turns",
+  "help",
+]);
+
+function normalizeArgv(argv: string[]): string[] {
+  return argv.map((arg) => {
+    if (!arg.startsWith("-") || arg.startsWith("--") || arg === "-") return arg;
+    if (arg === "-h") return "--help";
+    const name = arg.slice(1).split("=")[0] ?? "";
+    return LONG_OPTIONS.has(name) ? `--${arg.slice(1)}` : arg;
+  });
+}
+
 const { values } = parseArgs({
+  args: normalizeArgv(process.argv.slice(2)),
   options: {
     prompt: { type: "string" },
     dir: { type: "string" },
@@ -117,7 +142,12 @@ console.log("==================================================");
 const registry = createRegistry();
 for (const tool of createTools(workDir)) registry.register(tool);
 
-const session = globalSessionManager.getOrCreate(sessionId, workDir);
+const session = (await loadSession(workDir, sessionId)) ?? globalSessionManager.getOrCreate(sessionId, workDir);
+if (session.length > 0) {
+  console.log(
+    `♻️  续跑会话 ${sessionId}：已有 ${session.length} 条消息，累计 ¥${session.totals.costCNY.toFixed(6)}`,
+  );
+}
 session.append({ role: "user", content: prompt });
 
 // ch18：装饰器模式，引擎拿到的仍是 LLMProvider
@@ -154,11 +184,15 @@ try {
 }
 
 const totals = session.totals;
+const sessionPath = await saveSession(session);
+
 console.log("\n==================================================");
 console.log(`✨ 任务结束 | 消息 ${session.length} 条`);
 console.log(
   `💰 本次会话累计: ¥${totals.costCNY.toFixed(6)} | 输入 ${totals.promptTokens} tk | 输出 ${totals.completionTokens} tk`,
 );
+console.log(`📝 会话已保存: ${sessionPath}`);
+console.log(`   （下次用 -session ${sessionId} 可接着跑）`);
 console.log("==================================================");
 
 process.exit(exitCode);

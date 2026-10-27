@@ -16,6 +16,15 @@ export interface SessionTotals {
   costCNY: number;
 }
 
+/** 落盘形状：够重放一个会话，不含任何运行时对象 */
+export interface SessionSnapshot {
+  id: string;
+  workDir: string;
+  updatedAt: string;
+  totals: SessionTotals;
+  history: Message[];
+}
+
 export class Session {
   readonly createdAt = new Date();
   updatedAt = new Date();
@@ -66,6 +75,27 @@ export class Session {
     this.completionTokens += usage.completionTokens;
     this.costCNY += cost;
     this.updatedAt = new Date();
+  }
+
+  /** 导出快照：`-session` 续跑靠它 */
+  toSnapshot(): SessionSnapshot {
+    return {
+      id: this.id,
+      workDir: this.workDir,
+      updatedAt: this.updatedAt.toISOString(),
+      totals: this.totals,
+      history: [...this.history],
+    };
+  }
+
+  static restore(snapshot: SessionSnapshot): Session {
+    const session = new Session(snapshot.id, snapshot.workDir);
+    session.history = Array.isArray(snapshot.history) ? [...snapshot.history] : [];
+    session.promptTokens = snapshot.totals?.promptTokens ?? 0;
+    session.completionTokens = snapshot.totals?.completionTokens ?? 0;
+    session.costCNY = snapshot.totals?.costCNY ?? 0;
+    session.updatedAt = snapshot.updatedAt ? new Date(snapshot.updatedAt) : new Date();
+    return session;
   }
 
   get totals(): SessionTotals {

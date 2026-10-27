@@ -7,6 +7,7 @@
 import type { LLMProvider } from "../provider/types.ts";
 import type { Registry } from "../tools/registry.ts";
 import type { Message } from "../schema/message.ts";
+import { PromptComposer } from "../context/composer.ts";
 import type { Reporter } from "./reporter.ts";
 
 export interface EngineOptions {
@@ -39,12 +40,9 @@ export class AgentEngine {
     console.log(`[Engine] 引擎启动，锁定工作区: ${this.workDir}`);
     console.log(`[Engine] 慢思考模式 (Thinking Phase): ${this.enableThinking}`);
 
+    const systemMsg = await new PromptComposer(this.workDir).build();
     const contextHistory: Message[] = [
-      {
-        role: "system",
-        content:
-          "You are tsbot, an expert coding assistant. You have full access to tools in the workspace.",
-      },
+      systemMsg,
       { role: "user", content: userPrompt },
     ];
 

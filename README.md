@@ -73,6 +73,31 @@ src/
 workspace/        沙箱：AGENTS.md、skills、nginx.conf、error.log、ports.md
 ```
 
+## 代码风格（TS 版）
+
+移植完成后的两轮 polish 把它改成了更"TS 原生"的写法，目标是**读的人不需要解码类型**：
+
+1. **工具是对象，不是类**。每个工具文件只写 `name / description / schema / run` 四个字段，
+   泛型只出现在 `tools/tool.ts` 的 `defineTool` 一处：
+
+   ```ts
+   export const readFileTool = (workDir: string) =>
+     defineTool({
+       name: "read_file",
+       description: "读取指定路径的文件内容。",
+       schema: z.object({ path: z.string().describe("相对工作区的路径") }),
+       async run({ path }) { … },   // path 已是 string，不用写类型
+     });
+   ```
+
+2. **注册表只暴露类型和工厂**：`Registry`（接口）+ `createRegistry()`，实现类不导出 ——
+   避免 Go 式"interface + struct 两个名字指一件事"的读法成本。
+
+3. **import 不带 `.ts` 扩展名**，靠 `moduleResolution: "bundler"` 解析。
+
+4. **主循环四层**：`run`（根 span / 落盘）→ `runTurns`（轮数）→ `runTurn`（一轮三段）
+   → `executeOne`（单个工具）。单屏可读完。
+
 ## 与 Go 版的差异（有意为之）
 
 1. **不引模型 SDK**。Go 版用 `anthropic-sdk-go` / `openai-go`，这里用 `fetch` 直连，

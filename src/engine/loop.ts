@@ -1,17 +1,23 @@
 /**
- * ch03：把"思考"和"行动"拆成两个阶段。
+ * ch09：主循环接入 Reporter。
  *
- * 关键点：Thinking 阶段把 tools 传成空数组，等于从协议层面剥夺模型调用工具的能力，
- * 逼它先把计划想清楚；Action 阶段再把工具挂回去。
+ * 引擎只负责"发生什么"，怎么展示交给 Reporter：
+ * 终端用 ANSI，飞书发卡片，跑分直接静音。
  */
 import type { LLMProvider } from "../provider/types.ts";
 import type { Registry } from "../tools/registry.ts";
 import type { Message } from "../schema/message.ts";
+import type { Reporter } from "./reporter.ts";
 
 export interface EngineOptions {
   workDir: string;
   /** 慢思考模式：每轮先做一次无工具的推理 */
   enableThinking?: boolean;
+}
+
+export interface RunOptions {
+  signal?: AbortSignal;
+  reporter?: Reporter;
 }
 
 export class AgentEngine {
@@ -27,7 +33,9 @@ export class AgentEngine {
     this.enableThinking = options.enableThinking ?? false;
   }
 
-  async run(userPrompt: string, signal?: AbortSignal): Promise<void> {
+  async run(userPrompt: string, options: RunOptions = {}): Promise<void> {
+    const { signal, reporter } = options;
+
     console.log(`[Engine] 引擎启动，锁定工作区: ${this.workDir}`);
     console.log(`[Engine] 慢思考模式 (Thinking Phase): ${this.enableThinking}`);
 
@@ -51,9 +59,10 @@ export class AgentEngine {
       // ============ Phase 1: Thinking ============
       if (this.enableThinking) {
         console.log("[Engine][Phase 1] 剥夺工具访问权，强制进入慢思考与规划阶段...");
+        reporter?.onThinking();
+
         const thinkResp = await this.provider.generate(contextHistory, [], signal);
         if (thinkResp.content) {
-          console.log(`🧠 [内部思考 Trace]: ${thinkResp.content}`);
           contextHistory.push(thinkResp);
         }
       }
@@ -68,7 +77,7 @@ export class AgentEngine {
       contextHistory.push(actionResp);
 
       if (actionResp.content) {
-        console.log(`🤖 [对外回复]: ${actionResp.content}`);
+        reporter?.onMessage(actionResp.content);
       }
 
       // ============ 执行判断 ============
@@ -80,21 +89,20 @@ export class AgentEngine {
 
       console.log(`[Engine] 模型请求调用 ${toolCalls.length} 个工具...`);
 
-      // ch08：并发执行。Go 版要起 goroutine + WaitGroup，还得用 idx 手动把结果
-      // 塞回 observationMsgs[i] 才能对齐顺序；Promise.all 天然按入参顺序返回。
+      // ch08：并发执行，Promise.all 保持入参顺序
       const observations = await Promise.all(
         toolCalls.map(async (toolCall): Promise<Message> => {
-          console.log(
-            `  -> 🛠️ 执行工具: ${toolCall.name}, 参数: ${JSON.stringify(toolCall.arguments)}`,
-          );
+          reporter?.onToolCall(toolCall.name, JSON.stringify(toolCall.arguments));
+          console.log(`  -> 🛠️ 执行工具: ${toolCall.name}`);
 
           const result = await this.registry.execute(toolCall, signal);
 
-          if (result.isError) {
-            console.log(`  -> ❌ 工具执行报错 [${toolCall.name}]: ${result.output}`);
-          } else {
-            console.log(`  -> ✅ 工具执行成功 [${toolCall.name}] (返回 ${result.output.length} 字节)`);
-          }
+          reporter?.onToolResult(toolCall.name, result.output, result.isError);
+          console.log(
+            result.isError
+              ? `  -> ❌ 工具执行报错 [${toolCall.name}]`
+              : `  -> ✅ 工具执行成功 [${toolCall.name}] (返回 ${result.output.length} 字节)`,
+          );
 
           return {
             role: "user",

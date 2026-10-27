@@ -3,6 +3,7 @@
  */
 import { parseArgs } from "node:util";
 import { AgentEngine } from "../engine/loop.ts";
+import { TerminalReporter } from "../engine/terminal-reporter.ts";
 import { createProvider, detectProviderKind } from "../provider/factory.ts";
 import { ScriptedProvider } from "../provider/mock.ts";
 import type { LLMProvider } from "../provider/types.ts";
@@ -67,4 +68,4 @@ const engine = new AgentEngine(provider, registry, {
   workDir,
   enableThinking: values.thinking ?? false,
 });
-await engine.run(prompt);
+await engine.run(prompt, { reporter: new TerminalReporter() });

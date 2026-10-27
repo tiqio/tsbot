@@ -28,7 +28,7 @@ bun run typecheck   # tsc --noEmit，严格模式
 | 跨层传值（reporter） | `context.WithValue` | `AsyncLocalStorage` |
 | 会话并发 | `sync.RWMutex` | 单线程事件循环，这层锁直接消失 |
 | 模块私有性 | `internal/` 编译器强制 | 目录约定（**这是退步**） |
-| 分发 | 静态单文件 | `bun build --compile`（体积大得多） |
+| 分发 | 静态单文件，约 10–15 MB | `bun build --compile` 也能出单文件，实测 **110 MB** |
 
 ## 章节 ↔ commit
 

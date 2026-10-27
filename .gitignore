@@ -1,9 +1,11 @@
 node_modules/
-bun.lock
 bun.lockb
 *.tsbuildinfo
+
+# 运行时产物：沙箱里的追踪、按会话生成的笔记
 workspace/.claw/traces/
 workspace/.claw/sessions/
-.DS_Store
 workspace/notes.md
 .claw/
+
+.DS_Store

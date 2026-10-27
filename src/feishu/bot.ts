@@ -11,6 +11,7 @@ import { createServer } from "node:http";
 import { globalSessionManager } from "../context/session.ts";
 import type { AgentEngine } from "../engine/loop.ts";
 import type { Reporter } from "../engine/reporter.ts";
+import { globalApprovalManager } from "./approval.ts";
 
 const FEISHU_BASE = "https://open.feishu.cn/open-apis";
 const MAX_REGISTERED_MESSAGES = 50;
@@ -186,6 +187,25 @@ export class FeishuBot {
     if (!text) return { code: 0 };
 
     console.log(`[Feishu] 收到会话 ${message.chat_id} 的消息: ${text}`);
+
+    // ch16：人工审批口令，直接唤醒挂起的工具调用
+    if (text.startsWith("approve ") || text.startsWith("reject ")) {
+      const allowed = text.startsWith("approve ");
+      const taskId = text.slice(allowed ? "approve ".length : "reject ".length).trim();
+      const reason = allowed
+        ? "人类管理员已批准操作"
+        : "人类管理员认为该操作存在极高风险，已拒绝";
+
+      const matched = globalApprovalManager.resolveApproval(taskId, allowed, reason);
+      await this.client.sendText(
+        message.chat_id,
+        matched
+          ? `${allowed ? "✅ 已批准" : "🚫 已拒绝"}任务 ${taskId}`
+          : `⚠️ 没有找到待审批的任务 ${taskId}（可能已超时或被处理）`,
+      );
+      return { code: 0 };
+    }
+
     // 不阻塞 webhook 回调：飞书要求 3 秒内返回
     void this.handlePrompt(message.chat_id, text);
     return { code: 0 };

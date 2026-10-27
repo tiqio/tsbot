@@ -9,9 +9,25 @@ import { z } from "zod";
 import type { JsonSchema, ToolCall, ToolDefinition, ToolResult } from "../schema/message.ts";
 import type { Tool } from "./tool.ts";
 
+export interface MiddlewareDecision {
+  allowed: boolean;
+  reason?: string;
+}
+
+/**
+ * 中间件：在执行工具之前拦截。
+ * Go 版签名是 func(ctx, call) (bool, string)；这里用对象返回，多一个字段就不用改签名。
+ */
+export type Middleware = (
+  call: ToolCall,
+  signal?: AbortSignal,
+) => Promise<MiddlewareDecision> | MiddlewareDecision;
+
 export interface Registry {
   /** 当前对模型可见的工具定义 */
   getAvailableTools(): ToolDefinition[];
+  /** 挂载一个执行前拦截器（ch16） */
+  use(middleware: Middleware): this;
   /** 执行一次工具调用；不允许抛异常，失败也返回 ToolResult(isError=true) */
   execute(call: ToolCall, signal?: AbortSignal): Promise<ToolResult>;
 }
@@ -34,6 +50,7 @@ function formatIssues(error: z.ZodError): string {
 export class ToolRegistry implements Registry {
   private readonly tools = new Map<string, Tool>();
   private readonly definitions = new Map<string, ToolDefinition>();
+  private readonly middlewares: Middleware[] = [];
 
   register(tool: Tool): this {
     if (this.tools.has(tool.name)) {
@@ -42,6 +59,11 @@ export class ToolRegistry implements Registry {
     this.tools.set(tool.name, tool);
     this.definitions.set(tool.name, toDefinition(tool));
     console.log(`[Registry] 成功挂载工具: ${tool.name}`);
+    return this;
+  }
+
+  use(middleware: Middleware): this {
+    this.middlewares.push(middleware);
     return this;
   }
 
@@ -67,6 +89,20 @@ export class ToolRegistry implements Registry {
         output: `参数校验失败（${call.name}）：${formatIssues(parsed.error)}\n收到的原始参数：${JSON.stringify(call.arguments).slice(0, 500)}`,
         isError: true,
       };
+    }
+
+    // ch16：执行前的拦截链（审批、限流、审计都挂在这里）
+    for (const middleware of this.middlewares) {
+      const decision = await middleware(call, signal);
+      if (!decision.allowed) {
+        const reason = decision.reason ?? "未说明原因";
+        console.log(`[Registry] ⚠️ 工具 ${call.name} 被 Middleware 拦截: ${reason}`);
+        return {
+          toolCallId: call.id,
+          output: `执行被系统拦截。原因: ${reason}`,
+          isError: true, // 必须是 error，才能强制模型阅读拒绝理由
+        };
+      }
     }
 
     try {

@@ -1,19 +1,19 @@
 /**
- * 主循环总装。
+ * 主循环。
  *
- * ch09 Reporter / ch11 Session / ch12 压缩 / ch13 PlanMode 与协议占位 /
- * ch14 恢复指南 / ch15 死循环探测 / ch17 子智能体 / ch19 链路追踪。
+ * 读这个文件应该像读一段流程：run → runTurns → runTurn →（think / act / 执行工具）。
+ * 每个函数只做一件事，单屏可读完。
  */
-import type { LLMProvider } from "../provider/types.ts";
-import type { Registry } from "../tools/registry.ts";
-import type { Message } from "../schema/message.ts";
-import { PromptComposer } from "../context/composer.ts";
-import { Compactor } from "../context/compactor.ts";
-import { RecoveryManager } from "../context/recovery.ts";
-import type { Session } from "../context/session.ts";
-import { Span, exportTrace } from "../observability/trace.ts";
-import { ReminderInjector } from "./reminder.ts";
-import type { Reporter } from "./reporter.ts";
+import type { LLMProvider } from "../provider/types";
+import type { Registry } from "../tools/registry";
+import type { Message, ToolCall, ToolResult } from "../schema/message";
+import { PromptComposer } from "../context/composer";
+import { Compactor } from "../context/compactor";
+import { RecoveryManager } from "../context/recovery";
+import type { Session } from "../context/session";
+import { Span, exportTrace } from "../observability/trace";
+import { ReminderInjector } from "./reminder";
+import type { Reporter } from "./reporter";
 
 const SUBAGENT_SYSTEM_PROMPT = `你是一个专门负责深度探索的探路者 (Explorer Subagent)。
 你的任务是根据主架构师的指令，在当前工作区内仔细阅读代码、查阅日志，搜集足够的信息。
@@ -25,6 +25,8 @@ const SUBAGENT_SYSTEM_PROMPT = `你是一个专门负责深度探索的探路者
 
 const MAX_SUB_TURNS = 10;
 const WORKING_MEMORY_LIMIT = 20;
+const PLACEHOLDER_USER =
+  "[系统占位符] 这是为了保持上下文连贯性而注入的断点标记。请继续执行你刚才的任务。";
 
 export interface EngineOptions {
   /** 慢思考模式：每轮先做一次无工具的推理 */
@@ -45,8 +47,8 @@ export interface RunOptions {
 export class AgentEngine {
   private readonly enableThinking: boolean;
   private readonly planMode: boolean;
-  private readonly compactor: Compactor;
   private readonly maxTurns: number;
+  private readonly compactor: Compactor;
   private readonly recovery = new RecoveryManager();
   private readonly injector = new ReminderInjector();
 
@@ -57,20 +59,19 @@ export class AgentEngine {
   ) {
     this.enableThinking = options.enableThinking ?? false;
     this.planMode = options.planMode ?? false;
-    this.compactor = new Compactor(options.maxContextChars ?? 200_000, 6);
     this.maxTurns = options.maxTurns ?? Number.POSITIVE_INFINITY;
+    this.compactor = new Compactor(options.maxContextChars ?? 200_000, 6);
   }
 
+  /** 跑完一个会话，退出时把追踪落盘 */
   async run(session: Session, options: RunOptions = {}): Promise<void> {
-    const { signal, reporter } = options;
-
     const rootSpan = new Span("Agent.Run")
       .addAttribute("SessionID", session.id)
       .addAttribute("WorkDir", session.workDir)
       .addAttribute("PlanMode", this.planMode);
 
     try {
-      await this.loop(session, rootSpan, signal, reporter);
+      await this.runTurns(session, rootSpan, options);
     } finally {
       rootSpan.end();
       const file = await exportTrace(rootSpan, session.workDir, session.id);
@@ -78,144 +79,182 @@ export class AgentEngine {
     }
   }
 
-  private async loop(
+  private async runTurns(
     session: Session,
     rootSpan: Span,
-    signal: AbortSignal | undefined,
-    reporter: Reporter | undefined,
+    { signal, reporter }: RunOptions,
   ): Promise<void> {
     console.log(`[Engine] 会话启动: ${session.id}，工作区: ${session.workDir}`);
     console.log(`[Engine] Thinking=${this.enableThinking} PlanMode=${this.planMode}`);
 
     const systemMsg = await new PromptComposer(session.workDir, this.planMode).build();
 
-    let turnCount = 0;
-
-    for (;;) {
-      turnCount++;
-      if (turnCount > this.maxTurns) {
+    for (let turn = 1; ; turn++) {
+      if (turn > this.maxTurns) {
         throw new Error(`超过最大轮数 ${this.maxTurns}，强制结束（疑似跑飞）`);
       }
-      const turnSpan = new Span(`Turn-${turnCount}`, rootSpan);
-      console.log(`\n========== [Turn ${turnCount}] 开始 ==========`);
 
-      const availableTools = this.registry.getAvailableTools();
+      console.log(`\n========== [Turn ${turn}] 开始 ==========`);
+      const turnSpan = new Span(`Turn-${turn}`, rootSpan);
 
-      // ch13：历史首条必须是 user，否则协议会报错
-      const memory = session.getWorkingMemory(WORKING_MEMORY_LIMIT);
-      if (memory.length > 0 && memory[0]?.role !== "user") {
-        memory.unshift({
-          role: "user",
-          content:
-            "[系统占位符] 这是为了保持上下文连贯性而注入的断点标记。请继续执行你刚才的任务。",
-        });
-      }
-
-      // ch12：装配好的上下文先过压缩器，再发给模型
-      const contextHistory = this.compactor.compact([systemMsg, ...memory]);
-      turnSpan.addAttribute("context_message_count", contextHistory.length);
-
-      // ============ Phase 1: Thinking ============
-      if (this.enableThinking) {
-        console.log("[Engine][Phase 1] 剥夺工具访问权，强制进入慢思考与规划阶段...");
-        reporter?.onThinking();
-
-        const thinkSpan = new Span("LLM.Thinking", turnSpan);
-        const thinkResp = await this.provider.generate(contextHistory, [], signal);
-        thinkSpan.end();
-
-        if (thinkResp.content) {
-          contextHistory.push(thinkResp);
-          turnSpan.addAttribute("thinking", thinkResp.content.slice(0, 200));
-        }
-      }
-
-      // ============ Phase 2: Action ============
-      console.log("[Engine][Phase 2] 恢复工具挂载，等待模型采取行动...");
-      const actionSpan = new Span("LLM.Action", turnSpan).addAttribute(
-        "tool_count",
-        availableTools.length,
-      );
-      const actionResp = await this.provider.generate(
-        contextHistory,
-        availableTools,
-        signal,
-      );
-      actionSpan.end();
-      session.append(actionResp);
-
-      if (actionResp.content) {
-        reporter?.onMessage(actionResp.content);
-      }
-
-      // ============ 执行判断 ============
-      const toolCalls = actionResp.toolCalls ?? [];
-      if (toolCalls.length === 0) {
-        console.log("[Engine] 模型未请求调用工具，任务宣告完成。");
-        turnSpan.end();
-        break;
-      }
-
-      console.log(`[Engine] 模型请求调用 ${toolCalls.length} 个工具...`);
-
-      // ch08：并发执行，Promise.all 保持入参顺序
-      const observations = await Promise.all(
-        toolCalls.map(async (toolCall) => {
-          const toolSpan = new Span(`Tool.${toolCall.name}`, turnSpan).addAttribute(
-            "arguments",
-            JSON.stringify(toolCall.arguments).slice(0, 500),
-          );
-          reporter?.onToolCall(toolCall.name, JSON.stringify(toolCall.arguments));
-          console.log(`  -> 🛠️ 执行工具: ${toolCall.name}`);
-
-          const result = await this.registry.execute(toolCall, signal);
-
-          // ch14：失败时追加"救援指南"，让模型知道下一步该干什么
-          const finalOutput = result.isError
-            ? this.recovery.analyzeAndInject(toolCall.name, result.output)
-            : result.output;
-
-          toolSpan.addAttribute("is_error", result.isError);
-          toolSpan.addAttribute("output_preview", finalOutput.slice(0, 200));
-          toolSpan.end();
-
-          reporter?.onToolResult(toolCall.name, finalOutput, result.isError);
-          console.log(
-            result.isError
-              ? `  -> ❌ 工具执行报错 [${toolCall.name}]`
-              : `  -> ✅ 工具执行成功 [${toolCall.name}] (返回 ${finalOutput.length} 字节)`,
-          );
-
-          return {
-            call: toolCall,
-            result,
-            message: {
-              role: "user" as const,
-              content: finalOutput,
-              toolCallId: toolCall.id,
-            },
-          };
-        }),
-      );
-
-      session.append(...observations.map((item) => item.message));
-
-      // ch15：拿本轮第一个工具调用做死循环探测（与原书一致）
-      const first = observations[0];
-      if (first) {
-        const reminder = this.injector.checkAndInject(first.call, first.result);
-        if (reminder) {
-          session.append(reminder);
-          reporter?.onMessage(reminder.content);
-        }
-      }
-
+      const finished = await this.runTurn(session, systemMsg, turnSpan, signal, reporter);
       turnSpan.end();
+
+      if (finished) return;
     }
   }
 
+  /** 返回 true 表示模型不再调用工具，任务结束 */
+  private async runTurn(
+    session: Session,
+    systemMsg: Message,
+    turnSpan: Span,
+    signal: AbortSignal | undefined,
+    reporter: Reporter | undefined,
+  ): Promise<boolean> {
+    const context = this.buildContext(session, systemMsg);
+    turnSpan.addAttribute("context_message_count", context.length);
+
+    if (this.enableThinking) {
+      await this.think(context, turnSpan, signal, reporter);
+    }
+
+    const reply = await this.act(context, turnSpan, signal, reporter);
+    session.append(reply);
+    if (reply.content) reporter?.onMessage(reply.content);
+
+    const toolCalls = reply.toolCalls ?? [];
+    if (toolCalls.length === 0) {
+      console.log("[Engine] 模型未请求调用工具，任务宣告完成。");
+      return true;
+    }
+
+    await this.executeToolCalls(session, toolCalls, turnSpan, signal, reporter);
+    return false;
+  }
+
+  /** 系统提示 + 最近的工作记忆，必要时补一条占位 user 消息并过压缩器 */
+  private buildContext(session: Session, systemMsg: Message): Message[] {
+    const memory = session.getWorkingMemory(WORKING_MEMORY_LIMIT);
+
+    // 协议要求首条非 system 消息是 user；截断后可能是 assistant
+    if (memory.length > 0 && memory[0]?.role !== "user") {
+      memory.unshift({ role: "user", content: PLACEHOLDER_USER });
+    }
+
+    return this.compactor.compact([systemMsg, ...memory]);
+  }
+
+  /** 第一阶段：剥夺工具，逼模型先想清楚 */
+  private async think(
+    context: Message[],
+    turnSpan: Span,
+    signal: AbortSignal | undefined,
+    reporter: Reporter | undefined,
+  ): Promise<void> {
+    console.log("[Engine][Phase 1] 剥夺工具访问权，强制进入慢思考与规划阶段...");
+    reporter?.onThinking();
+
+    const span = new Span("LLM.Thinking", turnSpan);
+    const response = await this.provider.generate(context, [], signal);
+    span.end();
+
+    if (!response.content) return;
+    context.push(response);
+    turnSpan.addAttribute("thinking", response.content.slice(0, 200));
+  }
+
+  /** 第二阶段：挂回工具，拿模型的动作 */
+  private async act(
+    context: Message[],
+    turnSpan: Span,
+    signal: AbortSignal | undefined,
+    reporter: Reporter | undefined,
+  ): Promise<Message> {
+    console.log("[Engine][Phase 2] 恢复工具挂载，等待模型采取行动...");
+
+    const span = new Span("LLM.Action", turnSpan).addAttribute(
+      "tool_count",
+      this.registry.getAvailableTools().length,
+    );
+    const response = await this.provider.generate(
+      context,
+      this.registry.getAvailableTools(),
+      signal,
+    );
+    span.end();
+
+    return response;
+  }
+
+  /** 同一轮的多个工具并发执行；结果按入参顺序写回会话 */
+  private async executeToolCalls(
+    session: Session,
+    toolCalls: ToolCall[],
+    turnSpan: Span,
+    signal: AbortSignal | undefined,
+    reporter: Reporter | undefined,
+  ): Promise<void> {
+    console.log(`[Engine] 模型请求调用 ${toolCalls.length} 个工具...`);
+
+    const results = await Promise.all(
+      toolCalls.map((call) => this.executeOne(call, turnSpan, signal, reporter)),
+    );
+
+    session.append(...results.map((item) => item.message));
+
+    // 拿本轮第一个工具调用做死循环探测
+    const first = results[0];
+    if (!first) return;
+
+    const reminder = this.injector.checkAndInject(first.call, first.result);
+    if (!reminder) return;
+
+    session.append(reminder);
+    reporter?.onMessage(reminder.content);
+  }
+
+  private async executeOne(
+    call: ToolCall,
+    turnSpan: Span,
+    signal: AbortSignal | undefined,
+    reporter: Reporter | undefined,
+  ): Promise<{ call: ToolCall; result: ToolResult; message: Message }> {
+    const args = JSON.stringify(call.arguments);
+    const span = new Span(`Tool.${call.name}`, turnSpan).addAttribute(
+      "arguments",
+      args.slice(0, 500),
+    );
+
+    reporter?.onToolCall(call.name, args);
+    console.log(`  -> 🛠️ 执行工具: ${call.name}`);
+
+    const result = await this.registry.execute(call, signal);
+    // 失败时追加"救援指南"，让模型知道下一步该干什么
+    const output = result.isError
+      ? this.recovery.analyzeAndInject(call.name, result.output)
+      : result.output;
+
+    span.addAttribute("is_error", result.isError);
+    span.addAttribute("output_preview", output.slice(0, 200));
+    span.end();
+
+    reporter?.onToolResult(call.name, output, result.isError);
+    console.log(
+      result.isError
+        ? `  -> ❌ 工具执行报错 [${call.name}]`
+        : `  -> ✅ 工具执行成功 [${call.name}] (返回 ${output.length} 字节)`,
+    );
+
+    return {
+      call,
+      result,
+      message: { role: "user", content: output, toolCallId: call.id },
+    };
+  }
+
   /**
-   * ch17：子智能体 —— 打完就跑的一次性循环。
+   * 子智能体：打完就跑的一次性循环。
    *
    * 三条硬约束：
    * 1. 只拿得到传入的只读注册表，物理上无法写文件；
@@ -235,20 +274,15 @@ export class AgentEngine {
     ];
 
     for (let turn = 1; turn <= MAX_SUB_TURNS; turn++) {
-      const compacted = this.compactor.compact(history);
-
-      // 子任务要快：不做慢思考，直接出手
-      const actionResp = await this.provider.generate(
-        compacted,
+      const reply = await this.provider.generate(
+        this.compactor.compact(history),
         registry.getAvailableTools(),
         signal,
       );
-      history.push(actionResp);
+      history.push(reply);
 
-      const toolCalls = actionResp.toolCalls ?? [];
-      if (toolCalls.length === 0) {
-        return actionResp.content;
-      }
+      const toolCalls = reply.toolCalls ?? [];
+      if (toolCalls.length === 0) return reply.content;
 
       const observations = await Promise.all(
         toolCalls.map(async (call): Promise<Message> => {
@@ -258,7 +292,6 @@ export class AgentEngine {
             ? this.recovery.analyzeAndInject(call.name, result.output)
             : result.output;
           reporter?.onToolResult(`[Subagent] ${call.name}`, output, result.isError);
-
           return { role: "user", content: output, toolCallId: call.id };
         }),
       );

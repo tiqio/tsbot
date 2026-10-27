@@ -1,22 +1,35 @@
 /**
- * ch02：最小 ReAct 循环。
+ * ch03：把"思考"和"行动"拆成两个阶段。
  *
- * 这一版刻意保持"笨"：串行执行工具、没有任何上下文压缩，
- * 目的是先把 模型 → 工具 → 观察结果 的闭环跑通。
+ * 关键点：Thinking 阶段把 tools 传成空数组，等于从协议层面剥夺模型调用工具的能力，
+ * 逼它先把计划想清楚；Action 阶段再把工具挂回去。
  */
 import type { LLMProvider } from "../provider/types.ts";
 import type { Registry } from "../tools/registry.ts";
 import type { Message } from "../schema/message.ts";
 
+export interface EngineOptions {
+  workDir: string;
+  /** 慢思考模式：每轮先做一次无工具的推理 */
+  enableThinking?: boolean;
+}
+
 export class AgentEngine {
+  private readonly workDir: string;
+  private readonly enableThinking: boolean;
+
   constructor(
     private readonly provider: LLMProvider,
     private readonly registry: Registry,
-    private readonly workDir: string,
-  ) {}
+    options: EngineOptions,
+  ) {
+    this.workDir = options.workDir;
+    this.enableThinking = options.enableThinking ?? false;
+  }
 
   async run(userPrompt: string, signal?: AbortSignal): Promise<void> {
     console.log(`[Engine] 引擎启动，锁定工作区: ${this.workDir}`);
+    console.log(`[Engine] 慢思考模式 (Thinking Phase): ${this.enableThinking}`);
 
     const contextHistory: Message[] = [
       {
@@ -31,31 +44,42 @@ export class AgentEngine {
 
     for (;;) {
       turnCount++;
-      console.log(`========== [Turn ${turnCount}] 开始 ==========`);
+      console.log(`\n========== [Turn ${turnCount}] 开始 ==========`);
 
       const availableTools = this.registry.getAvailableTools();
 
-      console.log("[Engine] 正在思考 (Reasoning)...");
-      const response = await this.provider.generate(
+      // ============ Phase 1: Thinking ============
+      if (this.enableThinking) {
+        console.log("[Engine][Phase 1] 剥夺工具访问权，强制进入慢思考与规划阶段...");
+        const thinkResp = await this.provider.generate(contextHistory, [], signal);
+        if (thinkResp.content) {
+          console.log(`🧠 [内部思考 Trace]: ${thinkResp.content}`);
+          contextHistory.push(thinkResp);
+        }
+      }
+
+      // ============ Phase 2: Action ============
+      console.log("[Engine][Phase 2] 恢复工具挂载，等待模型采取行动...");
+      const actionResp = await this.provider.generate(
         contextHistory,
         availableTools,
         signal,
       );
-      contextHistory.push(response);
+      contextHistory.push(actionResp);
 
-      if (response.content) {
-        console.log(`🤖 模型: ${response.content}`);
+      if (actionResp.content) {
+        console.log(`🤖 [对外回复]: ${actionResp.content}`);
       }
 
-      const toolCalls = response.toolCalls ?? [];
+      // ============ 执行判断 ============
+      const toolCalls = actionResp.toolCalls ?? [];
       if (toolCalls.length === 0) {
-        console.log("[Engine] 任务完成，退出循环。");
+        console.log("[Engine] 模型未请求调用工具，任务宣告完成。");
         break;
       }
 
       console.log(`[Engine] 模型请求调用 ${toolCalls.length} 个工具...`);
 
-      // ch02 先串行；并发版在 ch08
       for (const toolCall of toolCalls) {
         console.log(
           `  -> 🛠️ 执行工具: ${toolCall.name}, 参数: ${JSON.stringify(toolCall.arguments)}`,

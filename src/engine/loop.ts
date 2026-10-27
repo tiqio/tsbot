@@ -33,6 +33,8 @@ export interface EngineOptions {
   planMode?: boolean;
   /** 上下文压缩阈值（字符），默认 200k */
   maxContextChars?: number;
+  /** 单次 run 允许的最大轮数，默认不限。跑分用它给"跑飞了"封顶 */
+  maxTurns?: number;
 }
 
 export interface RunOptions {
@@ -44,6 +46,7 @@ export class AgentEngine {
   private readonly enableThinking: boolean;
   private readonly planMode: boolean;
   private readonly compactor: Compactor;
+  private readonly maxTurns: number;
   private readonly recovery = new RecoveryManager();
   private readonly injector = new ReminderInjector();
 
@@ -55,6 +58,7 @@ export class AgentEngine {
     this.enableThinking = options.enableThinking ?? false;
     this.planMode = options.planMode ?? false;
     this.compactor = new Compactor(options.maxContextChars ?? 200_000, 6);
+    this.maxTurns = options.maxTurns ?? Number.POSITIVE_INFINITY;
   }
 
   async run(session: Session, options: RunOptions = {}): Promise<void> {
@@ -89,6 +93,9 @@ export class AgentEngine {
 
     for (;;) {
       turnCount++;
+      if (turnCount > this.maxTurns) {
+        throw new Error(`超过最大轮数 ${this.maxTurns}，强制结束（疑似跑飞）`);
+      }
       const turnSpan = new Span(`Turn-${turnCount}`, rootSpan);
       console.log(`\n========== [Turn ${turnCount}] 开始 ==========`);
 

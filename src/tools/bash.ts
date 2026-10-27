@@ -19,15 +19,21 @@ const schema = z.object({
 const MAX_BYTES = 8000;
 const TIMEOUT_MS = 30_000;
 
-interface RunOutcome {
+export interface RunOutcome {
   stdout: string;
   stderr: string;
   exitCode: number | null;
   timedOut: boolean;
 }
 
-function run(command: string, cwd: string, signal?: AbortSignal): Promise<RunOutcome> {
-  const timeout = AbortSignal.timeout(TIMEOUT_MS);
+/** 执行一条 shell 命令；工具层和跑分框架都用它，保证行为一致 */
+export function runShell(
+  command: string,
+  cwd: string,
+  signal?: AbortSignal,
+  timeoutMs = TIMEOUT_MS,
+): Promise<RunOutcome> {
+  const timeout = AbortSignal.timeout(timeoutMs);
   const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
 
   return new Promise<RunOutcome>((resolve, reject) => {
@@ -70,7 +76,7 @@ export class BashTool implements Tool<typeof schema> {
     args: z.infer<typeof schema>,
     ctx: { signal?: AbortSignal } = {},
   ): Promise<string> {
-    const { stdout, stderr, exitCode, timedOut } = await run(
+    const { stdout, stderr, exitCode, timedOut } = await runShell(
       args.command,
       this.workDir,
       ctx.signal,

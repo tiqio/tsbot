@@ -121,4 +121,19 @@ describe("主循环", () => {
     expect(firstCall[1]?.role).toBe("user");
     expect(firstCall[1]?.content).toContain("系统占位符");
   });
+
+  test("超过 maxTurns 抛错，避免无限跑飞", async () => {
+    const registry = new ToolRegistry();
+    registry.register(makeSleepTool([]));
+
+    const steps = Array.from({ length: 5 }, (_, index) => ({
+      role: "assistant" as const,
+      content: "",
+      toolCalls: [{ id: `c${index}`, name: "sleep", arguments: { ms: 1 } }],
+    }));
+
+    const engine = new AgentEngine(new ScriptedProvider(steps), registry, { maxTurns: 2 });
+
+    await expect(engine.run(newSession("跑飞"))).rejects.toThrow("超过最大轮数");
+  });
 });

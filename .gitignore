@@ -5,3 +5,4 @@ bun.lockb
 workspace/.claw/traces/
 workspace/.claw/sessions/
 .DS_Store
+workspace/notes.md

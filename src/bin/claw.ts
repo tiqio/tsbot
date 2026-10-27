@@ -20,7 +20,7 @@ const { values } = parseArgs({
 });
 
 const workDir = values.dir ?? process.cwd();
-const prompt = values.prompt ?? "先看看 README，再用 bash 确认一下当前目录。";
+const prompt = values.prompt ?? "在工作区生成一份 notes.md，并把版本号改成 v2.0.0。";
 const kind = (values.provider as ReturnType<typeof detectProviderKind>) ?? detectProviderKind();
 
 let provider: LLMProvider;
@@ -29,15 +29,30 @@ if (kind === "mock") {
   provider = new ScriptedProvider([
     {
       role: "assistant",
-      content: "先读 README，再确认一下当前目录。",
+      content: "先生成一份笔记，再把里面的版本号改掉。",
       toolCalls: [
-        { id: "call_read_1", name: "read_file", arguments: { path: "README.md" } },
-        { id: "call_bash_1", name: "bash", arguments: { command: "echo tsbot-ok" } },
+        {
+          id: "call_write_1",
+          name: "write_file",
+          arguments: {
+            path: "workspace/notes.md",
+            content: "# tsbot 工作区\n\n- 版本: v1.0.0\n- 状态: 草稿\n",
+          },
+        },
+        {
+          id: "call_edit_1",
+          name: "edit_file",
+          arguments: {
+            path: "workspace/notes.md",
+            old_text: "- 版本: v1.0.0",
+            new_text: "- 版本: v2.0.0",
+          },
+        },
       ],
     },
     {
       role: "assistant",
-      content: "README 是项目说明，bash 输出 tsbot-ok，环境正常。",
+      content: "笔记已生成，版本号从 v1.0.0 改成 v2.0.0。",
     },
   ]);
 } else {

@@ -18,3 +18,8 @@ export function createTools(workDir: string): Tool[] {
     new BashTool(workDir),
   ];
 }
+
+/** ch17：只读子集，给子智能体用；它物理上拿不到写工具 */
+export function createReadOnlyTools(workDir: string): Tool[] {
+  return [new ReadFileTool(workDir), new BashTool(workDir)];
+}

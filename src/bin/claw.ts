@@ -9,8 +9,9 @@ import { TerminalReporter } from "../engine/terminal-reporter.ts";
 import { createProvider, detectProviderKind } from "../provider/factory.ts";
 import { ScriptedProvider } from "../provider/mock.ts";
 import type { LLMProvider } from "../provider/types.ts";
-import { createTools } from "../tools/index.ts";
+import { createReadOnlyTools, createTools } from "../tools/index.ts";
 import { ToolRegistry } from "../tools/registry.ts";
+import { SubagentTool } from "../tools/subagent.ts";
 
 const { values } = parseArgs({
   options: {
@@ -76,6 +77,12 @@ const engine = new AgentEngine(provider, registry, {
   enableThinking: values.thinking ?? false,
   planMode: values.plan ?? false,
 });
+
+// ch17：子智能体工具需要引擎自身，所以只能等引擎建好再挂
+const readOnlyRegistry = new ToolRegistry();
+for (const tool of createReadOnlyTools(workDir)) readOnlyRegistry.register(tool);
+registry.register(new SubagentTool(engine, readOnlyRegistry));
+
 await engine.run(session, { reporter: new TerminalReporter() });
 
 console.log(`\n[Session ${session.id}] 共 ${session.length} 条消息，工作区 ${session.workDir}`);

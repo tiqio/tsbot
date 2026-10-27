@@ -1,18 +1,28 @@
 /**
  * ch11：引擎不再持有对话历史 —— 历史属于 Session。
  *
- * 这一改动看着小，但它把"引擎"变成了无状态的纯执行器：
- * 同一进程里可以同时跑很多会话（CLI、飞书群聊、跑分沙箱），
- * 每轮只从自己的 Session 里取最近 20 条工作记忆。
+ * ch17：再加一个 runSub —— 一次性的受限子循环，
+ * 只给只读工具、最多 10 轮、结果压缩成一段摘要。
  */
 import type { LLMProvider } from "../provider/types.ts";
 import type { Registry } from "../tools/registry.ts";
+import type { Message } from "../schema/message.ts";
 import { PromptComposer } from "../context/composer.ts";
 import { Compactor } from "../context/compactor.ts";
 import { RecoveryManager } from "../context/recovery.ts";
 import type { Session } from "../context/session.ts";
 import { ReminderInjector } from "./reminder.ts";
 import type { Reporter } from "./reporter.ts";
+
+const SUBAGENT_SYSTEM_PROMPT = `你是一个专门负责深度探索的探路者 (Explorer Subagent)。
+你的任务是根据主架构师的指令，在当前工作区内仔细阅读代码、查阅日志，搜集足够的信息。
+
+【核心纪律】
+1. 你必须、且只能依靠内置工具（ls / find / grep，或 read_file）去寻找答案，绝对不允许凭空捏造。
+2. 如果没有找到确切答案，必须继续使用工具深入搜索。
+3. 当且仅当找到确切线索后，停止调用工具，直接输出纯文本汇报。主架构师会根据你的汇报做决策。`;
+
+const MAX_SUB_TURNS = 10;
 
 export interface EngineOptions {
   /** 慢思考模式：每轮先做一次无工具的推理 */
@@ -154,5 +164,62 @@ export class AgentEngine {
         }
       }
     }
+  }
+
+  /**
+   * ch17：子智能体 —— 打完就跑的一次性循环。
+   *
+   * 三条硬约束：
+   * 1. 只拿得到传入的只读注册表，物理上无法写文件；
+   * 2. 最多 10 轮，防止它自己卡死；
+   * 3. 不落 Session，直接把最后一段文本当摘要返回。
+   */
+  async runSub(
+    taskPrompt: string,
+    registry: Registry,
+    options: RunOptions = {},
+  ): Promise<string> {
+    const { signal, reporter } = options;
+
+    const history: Message[] = [
+      { role: "system", content: SUBAGENT_SYSTEM_PROMPT },
+      { role: "user", content: taskPrompt },
+    ];
+
+    for (let turn = 1; turn <= MAX_SUB_TURNS; turn++) {
+      const compacted = this.compactor.compact(history);
+
+      // 子任务要快：不传 tools=nil 做慢思考，直接出手
+      const actionResp = await this.provider.generate(
+        compacted,
+        registry.getAvailableTools(),
+        signal,
+      );
+      history.push(actionResp);
+
+      const toolCalls = actionResp.toolCalls ?? [];
+      if (toolCalls.length === 0) {
+        return actionResp.content;
+      }
+
+      const observations = await Promise.all(
+        toolCalls.map(async (call): Promise<Message> => {
+          reporter?.onToolCall(`[Subagent] ${call.name}`, JSON.stringify(call.arguments));
+          const result = await registry.execute(call, signal);
+          const output = result.isError
+            ? this.recovery.analyzeAndInject(call.name, result.output)
+            : result.output;
+          reporter?.onToolResult(`[Subagent] ${call.name}`, output, result.isError);
+
+          return { role: "user", content: output, toolCallId: call.id };
+        }),
+      );
+
+      history.push(...observations);
+    }
+
+    throw new Error(
+      `子智能体探索过于深入，超过 ${MAX_SUB_TURNS} 轮被强制召回，请给它更明确的指令`,
+    );
   }
 }

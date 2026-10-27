@@ -16,6 +16,8 @@ import type { Reporter } from "./reporter.ts";
 export interface EngineOptions {
   /** 慢思考模式：每轮先做一次无工具的推理 */
   enableThinking?: boolean;
+  /** 长程任务模式：提示词里强制外部化 PLAN.md / TODO.md */
+  planMode?: boolean;
   /** 上下文压缩阈值（字符），默认 200k */
   maxContextChars?: number;
 }
@@ -27,6 +29,7 @@ export interface RunOptions {
 
 export class AgentEngine {
   private readonly enableThinking: boolean;
+  private readonly planMode: boolean;
   private readonly compactor: Compactor;
 
   constructor(
@@ -35,6 +38,7 @@ export class AgentEngine {
     options: EngineOptions = {},
   ) {
     this.enableThinking = options.enableThinking ?? false;
+    this.planMode = options.planMode ?? false;
     this.compactor = new Compactor(options.maxContextChars ?? 200_000, 6);
   }
 
@@ -42,9 +46,11 @@ export class AgentEngine {
     const { signal, reporter } = options;
 
     console.log(`[Engine] 会话启动: ${session.id}，工作区: ${session.workDir}`);
-    console.log(`[Engine] 慢思考模式 (Thinking Phase): ${this.enableThinking}`);
+    console.log(
+      `[Engine] Thinking=${this.enableThinking} PlanMode=${this.planMode}`,
+    );
 
-    const systemMsg = await new PromptComposer(session.workDir).build();
+    const systemMsg = await new PromptComposer(session.workDir, this.planMode).build();
 
     let turnCount = 0;
 
@@ -53,11 +59,20 @@ export class AgentEngine {
       console.log(`\n========== [Turn ${turnCount}] 开始 ==========`);
 
       const availableTools = this.registry.getAvailableTools();
+
+      // ch13：截断后的第一条可能是 assistant（比如刚执行完工具就重启），
+      // 协议要求首条非 system 消息必须是 user，这里强行插一条占位符把协议"稳住"。
+      const memory = session.getWorkingMemory(20);
+      if (memory.length > 0 && memory[0]?.role !== "user") {
+        memory.unshift({
+          role: "user",
+          content:
+            "[系统占位符] 这是为了保持上下文连贯性而注入的断点标记。请继续执行你刚才的任务。",
+        });
+      }
+
       // ch12：装配好的上下文先过压缩器，再发给模型
-      const contextHistory = this.compactor.compact([
-        systemMsg,
-        ...session.getWorkingMemory(20),
-      ]);
+      const contextHistory = this.compactor.compact([systemMsg, ...memory]);
 
       // ============ Phase 1: Thinking ============
       if (this.enableThinking) {

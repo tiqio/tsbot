@@ -13,7 +13,10 @@ import { SkillLoader } from "./skill.ts";
 export class PromptComposer {
   private readonly skillLoader: SkillLoader;
 
-  constructor(private readonly workDir: string) {
+  constructor(
+    private readonly workDir: string,
+    private readonly planMode = false,
+  ) {
     this.skillLoader = new SkillLoader(workDir);
   }
 
@@ -30,6 +33,24 @@ export class PromptComposer {
 5. 遇到工具执行报错时，仔细阅读 stderr，尝试自己修正命令并重试。
 6. 始终用中文回复，以便传达你的进展和想法。
 `;
+
+    if (this.planMode) {
+      prompt += `
+# 长程任务与状态外部化强制规范 (Plan Mode: ON)
+
+!!! 警告：本模式下，你绝对不能依赖自己的短期记忆。你必须把架构思路和执行进度持久化到物理文件。 !!!
+
+当你收到一条新指令被唤醒时，必须按以下【绝对顺序】行动：
+
+**[STEP 1: 强制环境嗅探]** 先用 bash 检查工作区根目录是否已有 PLAN.md 与 TODO.md。
+- 分支 A（全新任务）：用 write_file 依次创建 PLAN.md（理解与方案）和 TODO.md（可勾选的步骤）。
+- 分支 B（断点续传）：绝对不要覆盖它们！先 read_file 读 PLAN.md 了解全局，再读 TODO.md 找到第一个未打勾的 \`- [ ]\`，从那里继续。
+
+**[STEP 2: 单步执行与实时打勾]** 每完成一个子任务，必须立即用 edit_file 把 TODO.md 中对应行改为 \`- [x]\`。绝不允许"一口气写完再打勾"。
+
+**[STEP 3: 迷失时自救]** 遇到报错或不知道下一步时，立即 read_file 重读 TODO.md 确认位置。
+`;
+    }
 
     // 项目专属规范
     try {

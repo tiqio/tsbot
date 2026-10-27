@@ -20,6 +20,7 @@ const { values } = parseArgs({
     model: { type: "string" },
     session: { type: "string" },
     thinking: { type: "boolean" },
+    plan: { type: "boolean" },
   },
 });
 
@@ -73,6 +74,7 @@ session.append({ role: "user", content: prompt });
 
 const engine = new AgentEngine(provider, registry, {
   enableThinking: values.thinking ?? false,
+  planMode: values.plan ?? false,
 });
 await engine.run(session, { reporter: new TerminalReporter() });
 

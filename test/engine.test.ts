@@ -3,6 +3,8 @@ import { z } from "zod";
 import { Session } from "../src/context/session.ts";
 import { AgentEngine } from "../src/engine/loop.ts";
 import { ScriptedProvider } from "../src/provider/mock.ts";
+import type { LLMProvider } from "../src/provider/types.ts";
+import type { Message } from "../src/schema/message.ts";
 import { ToolRegistry } from "../src/tools/registry.ts";
 import type { Tool } from "../src/tools/tool.ts";
 
@@ -96,5 +98,27 @@ describe("主循环", () => {
 
     const observation = session.all.find((m) => m.toolCallId === "c1");
     expect(observation?.content).toContain("磁盘满了");
+  });
+
+  test("历史首条是 assistant 时，注入占位 user 消息稳住协议", async () => {
+    const registry = new ToolRegistry();
+    const calls: Message[][] = [];
+    const provider: LLMProvider = {
+      async generate(messages) {
+        calls.push(messages);
+        return { role: "assistant", content: "ok" };
+      },
+    };
+
+    const engine = new AgentEngine(provider, registry);
+    const session = new Session("resume", process.cwd());
+    session.append({ role: "assistant", content: "上一轮的回答" });
+
+    await engine.run(session);
+
+    const firstCall = calls[0] ?? [];
+    expect(firstCall[0]?.role).toBe("system");
+    expect(firstCall[1]?.role).toBe("user");
+    expect(firstCall[1]?.content).toContain("系统占位符");
   });
 });

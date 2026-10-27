@@ -9,12 +9,15 @@ import type { LLMProvider } from "../provider/types.ts";
 import type { Registry } from "../tools/registry.ts";
 import type { Message } from "../schema/message.ts";
 import { PromptComposer } from "../context/composer.ts";
+import { Compactor } from "../context/compactor.ts";
 import type { Session } from "../context/session.ts";
 import type { Reporter } from "./reporter.ts";
 
 export interface EngineOptions {
   /** 慢思考模式：每轮先做一次无工具的推理 */
   enableThinking?: boolean;
+  /** 上下文压缩阈值（字符），默认 200k */
+  maxContextChars?: number;
 }
 
 export interface RunOptions {
@@ -24,6 +27,7 @@ export interface RunOptions {
 
 export class AgentEngine {
   private readonly enableThinking: boolean;
+  private readonly compactor: Compactor;
 
   constructor(
     private readonly provider: LLMProvider,
@@ -31,6 +35,7 @@ export class AgentEngine {
     options: EngineOptions = {},
   ) {
     this.enableThinking = options.enableThinking ?? false;
+    this.compactor = new Compactor(options.maxContextChars ?? 200_000, 6);
   }
 
   async run(session: Session, options: RunOptions = {}): Promise<void> {
@@ -48,7 +53,11 @@ export class AgentEngine {
       console.log(`\n========== [Turn ${turnCount}] 开始 ==========`);
 
       const availableTools = this.registry.getAvailableTools();
-      const contextHistory: Message[] = [systemMsg, ...session.getWorkingMemory(20)];
+      // ch12：装配好的上下文先过压缩器，再发给模型
+      const contextHistory = this.compactor.compact([
+        systemMsg,
+        ...session.getWorkingMemory(20),
+      ]);
 
       // ============ Phase 1: Thinking ============
       if (this.enableThinking) {

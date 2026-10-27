@@ -13,6 +13,7 @@ export type ProviderKind =
   | "zhipu-anthropic"
   | "openai"
   | "zhipu-openai"
+  | "deepseek"
   | "mock";
 
 interface Preset {
@@ -35,6 +36,13 @@ const PRESETS: Record<Exclude<ProviderKind, "mock">, Preset> = {
     baseUrl: "https://open.bigmodel.cn/api/anthropic",
     model: "glm-4.5-air",
   },
+  deepseek: {
+    protocol: "openai",
+    keyEnv: "DEEPSEEK_API_KEY",
+    // 和 little-robot 的 .env 保持同一套变量名，直接 --env-file 指过去就能用
+    baseUrl: process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com",
+    model: process.env.DEEPSEEK_MODEL ?? "deepseek-chat",
+  },
   openai: {
     protocol: "openai",
     keyEnv: "OPENAI_API_KEY",
@@ -53,6 +61,7 @@ const PRESETS: Record<Exclude<ProviderKind, "mock">, Preset> = {
 export function detectProviderKind(): ProviderKind {
   if (process.env.ANTHROPIC_API_KEY) return "anthropic";
   if (process.env.ZHIPU_API_KEY) return "zhipu-openai";
+  if (process.env.DEEPSEEK_API_KEY) return "deepseek";
   if (process.env.OPENAI_API_KEY) return "openai";
   return "mock";
 }

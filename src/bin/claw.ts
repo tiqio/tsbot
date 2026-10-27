@@ -28,7 +28,7 @@ const USAGE = `tsbot —— 极简智能体驾驭引擎（TypeScript / Bun 版�
   --prompt <text>     要交给 Agent 执行的任务（必填）
   --dir <path>        工作区目录，默认当前目录
   --session <id>      会话 ID，默认 cli_default_session；同 id 再跑一次会接着上次的上下文
-  --provider <kind>   anthropic | zhipu-anthropic | openai | zhipu-openai | mock
+  --provider <kind>   anthropic | zhipu-anthropic | openai | zhipu-openai | deepseek | mock
                       默认按环境变量自动推断
   --model <name>      覆盖默认模型
   --thinking          开启慢思考两阶段

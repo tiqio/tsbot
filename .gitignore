@@ -2,6 +2,10 @@ node_modules/
 bun.lockb
 *.tsbuildinfo
 
+# 密钥：本仓库不存 key，用 bun --env-file 指向外部 .env
+.env
+.env.*
+
 # 运行时产物：沙箱里的追踪、按会话生成的笔记
 workspace/.claw/traces/
 workspace/.claw/sessions/

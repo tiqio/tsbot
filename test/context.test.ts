@@ -52,4 +52,15 @@ describe("PromptComposer", () => {
     expect(message.content).toContain("demo-skill");
     expect(message.content).toContain("说人话。");
   });
+
+  test("系统提示里写明当前 shell，避免模型在 Windows 上敲 ls", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "tsbot-prompt-"));
+    const message = await new PromptComposer(dir).build();
+
+    expect(message.content).toContain("运行环境");
+    expect(message.content).toContain("Shell:");
+    if (process.platform === "win32") {
+      expect(message.content).toContain("cmd.exe");
+    }
+  });
 });

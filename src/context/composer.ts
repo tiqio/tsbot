@@ -10,6 +10,27 @@ import { join } from "node:path";
 import type { Message } from "../schema/message";
 import { SkillLoader } from "./skill";
 
+/**
+ * 告诉模型它在什么 shell 里。
+ * 实测收益：不加这段时，模型会在 Windows 上先敲 `ls -la`，白费一轮；
+ * 加了之后第一次就用 `dir`。
+ */
+function platformHint(): string {
+  if (process.platform === "win32") {
+    return [
+      "- 操作系统: Windows",
+      "- Shell: cmd.exe —— 用 dir / type / findstr / del / copy；不要用 ls / cat / grep / rm",
+      "- 路径分隔符: \\",
+    ].join("\n");
+  }
+
+  return [
+    `- 操作系统: ${process.platform}`,
+    "- Shell: /bin/sh —— 可用 ls / cat / grep / rm",
+    "- 路径分隔符: /",
+  ].join("\n");
+}
+
 export class PromptComposer {
   private readonly skillLoader: SkillLoader;
 
@@ -25,12 +46,15 @@ export class PromptComposer {
 你名叫 tsbot，一个由驾驭工程驱动的研发助手。
 你具备极简主义哲学，拒绝废话。你能通过系统提供的内置工具，创建、读取、修改和执行工作区中的代码。
 
+# 运行环境
+${platformHint()}
+
 # 核心纪律 (CRITICAL)
-1. 如需检查文件是否存在，请使用 bash 的 ls 或 test -f，而不是对目录使用 read_file。
+1. 需要查看目录或判断文件是否存在时，用 bash 工具执行一条命令，而不是对目录使用 read_file。
 2. 创建新文件时，务必使用 write_file，并同时提供 path 和 content 参数。
 3. 编辑文件前务必先读取现有文件，以理解上下文。
 4. 无论何时你需要写代码或创建文件，都要直接使用 write_file 工具。
-5. 遇到工具执行报错时，仔细阅读 stderr，尝试自己修正命令并重试。
+5. 遇到工具执行报错时，仔细阅读报错里的系统提示，按当前 shell 的语法修正后重试。
 6. 始终用中文回复，以便传达你的进展和想法。
 `;
 

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Session } from "../src/context/session";
-import { CostTracker, costOf } from "../src/observability/tracker";
+import { CostTracker, costOf, priceOf } from "../src/observability/tracker";
 import { ScriptedProvider } from "../src/provider/mock";
 
 describe("计费", () => {
@@ -10,7 +10,9 @@ describe("计费", () => {
     expect(cost).toBeCloseTo(0.15, 6);
   });
 
-  test("未知模型不收费，也不报错", () => {
+  test("未知模型不收费，但能被识别出来（只统计 token）", () => {
+    expect(priceOf("no-such-model")).toBeUndefined();
+    expect(priceOf("deepseek-chat")).toBeDefined();
     expect(costOf("no-such-model", { promptTokens: 10_000, completionTokens: 10_000 })).toBe(0);
   });
 

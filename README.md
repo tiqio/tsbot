@@ -10,9 +10,20 @@
 ```bash
 bun install
 bun run demo        # 离线演示：完整 ReAct + 审批闸门，不需要 API Key
-bun test            # 67 个用例
+bun run mcp         # 离线演示：MCP 子进程 + 工具桥接
+bun test            # 81 个用例
 bun run typecheck   # tsc --noEmit，严格模式
 ```
+
+接真实模型时 key 不落仓库，直接指向已有的 `.env`：
+
+```bash
+bun --env-file=../little-robot/.env run src/bin/claw.ts \
+  -prompt "读一下 nginx.conf，找出 502 的原因" -dir ./workspace -session t1
+```
+
+支持 DeepSeek / 智谱 / Anthropic / OpenAI 四家（见 `provider/factory.ts` 的预设表）；
+单价没配的模型只统计 token，可用 `TSBOT_PRICING='{"model":{"input":1,"output":2}}'` 注入。
 
 ## 为什么单独开一个 TS 版
 

@@ -10,6 +10,7 @@ import type { Registry } from "../tools/registry.ts";
 import type { Message } from "../schema/message.ts";
 import { PromptComposer } from "../context/composer.ts";
 import { Compactor } from "../context/compactor.ts";
+import { RecoveryManager } from "../context/recovery.ts";
 import type { Session } from "../context/session.ts";
 import type { Reporter } from "./reporter.ts";
 
@@ -31,6 +32,7 @@ export class AgentEngine {
   private readonly enableThinking: boolean;
   private readonly planMode: boolean;
   private readonly compactor: Compactor;
+  private readonly recovery = new RecoveryManager();
 
   constructor(
     private readonly provider: LLMProvider,
@@ -115,16 +117,21 @@ export class AgentEngine {
 
           const result = await this.registry.execute(toolCall, signal);
 
-          reporter?.onToolResult(toolCall.name, result.output, result.isError);
+          // ch14：失败时追加"救援指南"，让模型知道下一步该干什么
+          const finalOutput = result.isError
+            ? this.recovery.analyzeAndInject(toolCall.name, result.output)
+            : result.output;
+
+          reporter?.onToolResult(toolCall.name, finalOutput, result.isError);
           console.log(
             result.isError
               ? `  -> ❌ 工具执行报错 [${toolCall.name}]`
-              : `  -> ✅ 工具执行成功 [${toolCall.name}] (返回 ${result.output.length} 字节)`,
+              : `  -> ✅ 工具执行成功 [${toolCall.name}] (返回 ${finalOutput.length} 字节)`,
           );
 
           return {
             role: "user",
-            content: result.output,
+            content: finalOutput,
             toolCallId: toolCall.id,
           };
         }),

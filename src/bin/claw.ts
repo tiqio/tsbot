@@ -1,11 +1,12 @@
 /**
- * ch11：会话化。一次 CLI 调用 = 一个 Session 里的若干轮。
+ * ch18：CLI 入口接入成本追踪。到这里，claw 的装配已经接近最终形态。
  */
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { globalSessionManager } from "../context/session.ts";
 import { AgentEngine } from "../engine/loop.ts";
 import { TerminalReporter } from "../engine/terminal-reporter.ts";
+import { CostTracker } from "../observability/tracker.ts";
 import { createProvider, detectProviderKind } from "../provider/factory.ts";
 import { ScriptedProvider } from "../provider/mock.ts";
 import type { LLMProvider } from "../provider/types.ts";
@@ -31,6 +32,8 @@ const sessionId = values.session ?? "cli_default_session";
 const kind = (values.provider as ReturnType<typeof detectProviderKind>) ?? detectProviderKind();
 
 let provider: LLMProvider;
+let modelName = "glm-4.5-air";
+
 if (kind === "mock") {
   console.log("⚠️  未检测到 API Key，使用 mock provider（脚本化回放，不调用真实模型）");
   provider = new ScriptedProvider([
@@ -56,15 +59,20 @@ if (kind === "mock") {
           },
         },
       ],
+      usage: { promptTokens: 1200, completionTokens: 180 },
     },
     {
       role: "assistant",
       content: "笔记已生成，版本号从 v1.0.0 改成 v2.0.0。",
+      usage: { promptTokens: 1500, completionTokens: 60 },
     },
   ]);
 } else {
-  provider = createProvider(kind, values.model)!.provider;
-  console.log(`🔌 provider=${kind} model=${values.model ?? "(默认)"}`);
+  const resolved = createProvider(kind, values.model);
+  if (!resolved) throw new Error(`无法创建 provider: ${kind}`);
+  provider = resolved.provider;
+  modelName = resolved.model;
+  console.log(`🔌 provider=${kind} model=${modelName}`);
 }
 
 const registry = new ToolRegistry();
@@ -73,7 +81,10 @@ for (const tool of createTools(workDir)) registry.register(tool);
 const session = globalSessionManager.getOrCreate(sessionId, workDir);
 session.append({ role: "user", content: prompt });
 
-const engine = new AgentEngine(provider, registry, {
+// ch18：装饰器模式，引擎拿到的仍是 LLMProvider
+const trackedProvider = new CostTracker(provider, modelName, session);
+
+const engine = new AgentEngine(trackedProvider, registry, {
   enableThinking: values.thinking ?? false,
   planMode: values.plan ?? false,
 });
@@ -85,4 +96,10 @@ registry.register(new SubagentTool(engine, readOnlyRegistry));
 
 await engine.run(session, { reporter: new TerminalReporter() });
 
-console.log(`\n[Session ${session.id}] 共 ${session.length} 条消息，工作区 ${session.workDir}`);
+const totals = session.totals;
+console.log("\n==================================================");
+console.log(`✨ 任务结束 | 消息 ${session.length} 条`);
+console.log(
+  `💰 本次会话累计: ¥${totals.costCNY.toFixed(6)} | 输入 ${totals.promptTokens} tk | 输出 ${totals.completionTokens} tk`,
+);
+console.log("==================================================");

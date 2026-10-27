@@ -119,10 +119,20 @@ workspace/        沙箱：AGENTS.md、skills、nginx.conf、error.log、ports.m
 | `connection.ts` | JSON-RPC 2.0 over 换行分隔 stdio：编号、配对、超时、`notifications/cancelled` |
 | `client.ts` | spawn → `initialize` → `notifications/initialized` → `tools/list` → `tools/call` → 关闭 |
 | `bridge.ts` | JSON Schema → `z.fromJSONSchema` → 注册成普通 `Tool`，名字前缀 `mcp__<server>__<tool>` |
+| `config.ts` | 读 `mcp.json`（与 Claude Desktop / Cline 同形） |
 | `server.ts` | 示例服务端：2 个工具 + 2 个资源 + 1 个提示词 |
 
 ```bash
-bun run mcp     # 起子进程 → 桥接 → 脚本化 Agent 调用远端工具
+bun run mcp                                   # 自带 demo：子进程 → 桥接 → Agent 调用
+bun run mcp:probe -- <启动命令> [参数...]      # 探针：连任意服务端，列能力、可选调一次
+bun run claw -mcp ./mcp.json -prompt "..."    # 把外部工具挂进 CLI 一起用
+MCP_DEBUG=1 bun run mcp                       # 打印原始 JSON-RPC 报文
+```
+
+`mcp.json` 形状：
+
+```json
+{ "servers": { "fs": { "command": "cmd", "args": ["/c", "mcp-server-filesystem", "."] } } }
 ```
 
 桥接之后，主循环完全分不出本地工具和远端工具。差别只剩三处：**名字前缀**、

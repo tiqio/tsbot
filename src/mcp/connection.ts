@@ -37,6 +37,7 @@ export class JsonRpcConnection {
   private readonly pending = new Map<number, Pending>();
   private closed = false;
   private readonly timeoutMs: number;
+  private readonly debug: boolean;
 
   constructor(
     private readonly input: NodeJS.ReadableStream,
@@ -44,6 +45,9 @@ export class JsonRpcConnection {
     private readonly options: ConnectionOptions = {},
   ) {
     this.timeoutMs = options.timeoutMs ?? 30_000;
+
+    // MCP_DEBUG=1 时把每条报文原样打出来，排查"到底谁没回"最有用
+    this.debug = process.env.MCP_DEBUG === "1";
 
     this.input.setEncoding("utf8");
     this.input.on("data", (chunk: string) => this.onData(chunk));
@@ -92,7 +96,9 @@ export class JsonRpcConnection {
   }
 
   private write(message: unknown): void {
-    this.output.write(`${JSON.stringify(message)}\n`);
+    const line = JSON.stringify(message);
+    if (this.debug) console.log(`  → ${line}`);
+    this.output.write(`${line}\n`);
   }
 
   private onData(chunk: string): void {
@@ -108,6 +114,7 @@ export class JsonRpcConnection {
   }
 
   private dispatch(line: string): void {
+    if (this.debug) console.log(`  ← ${line}`);
     let message: JsonRpcMessage;
     try {
       message = JSON.parse(line) as JsonRpcMessage;

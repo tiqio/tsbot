@@ -17,6 +17,9 @@ import type { LLMProvider } from "../provider/types";
 import { createReadOnlyTools, createTools } from "../tools/index";
 import { createRegistry } from "../tools/registry";
 import { subagentTool } from "../tools/subagent";
+import { registerMcpTools } from "../mcp/bridge";
+import { McpClient } from "../mcp/client";
+import { loadMcpConfig } from "../mcp/config";
 
 const USAGE = `tsbot —— 极简智能体驾驭引擎（TypeScript / Bun 版）
 
@@ -34,11 +37,12 @@ const USAGE = `tsbot —— 极简智能体驾驭引擎（TypeScript / Bun 版�
   --thinking          开启慢思考两阶段
   --plan              开启 Plan Mode（强制产出 PLAN.md / TODO.md）
   --max-turns <n>     最大轮数，默认不限
+  --mcp <path>        mcp.json 路径：把外部 MCP 服务端的工具一起挂进来
   --help              显示本帮助
 
 示例:
   bun run claw -prompt "读一下 nginx.conf，找出 502 的原因" -dir ./workspace -session t1
-  bun run claw -plan -prompt "把 notes.md 升级成 v2.0.0 并补一段变更日志" -dir ./workspace -session t2
+  bun run claw -mcp ./mcp.json -prompt "用 filesystem 工具看看工作区有什么" -session t3
 `;
 
 /** Go 的 flag 包两种横线都认，这里把 -session 归一成 --session 再交给 parseArgs */
@@ -51,6 +55,7 @@ const LONG_OPTIONS = new Set([
   "thinking",
   "plan",
   "max-turns",
+  "mcp",
   "help",
 ]);
 
@@ -74,6 +79,7 @@ const { values } = parseArgs({
     thinking: { type: "boolean" },
     plan: { type: "boolean" },
     "max-turns": { type: "string" },
+    mcp: { type: "string" },
     help: { type: "boolean" },
   },
 });
@@ -164,6 +170,16 @@ const readOnlyRegistry = createRegistry();
 for (const tool of createReadOnlyTools(workDir)) readOnlyRegistry.register(tool);
 registry.register(subagentTool(engine, readOnlyRegistry));
 
+// MCP：--mcp <mcp.json> 时把外部服务端的工具桥接进同一个注册表
+const mcpClients: McpClient[] = [];
+if (values.mcp) {
+  for (const config of await loadMcpConfig(values.mcp)) {
+    const client = await McpClient.connect(config);
+    mcpClients.push(client);
+    await registerMcpTools(client, registry);
+  }
+}
+
 // Ctrl+C 中止：AbortSignal 一路传到 provider 的 fetch 与子进程
 const controller = new AbortController();
 process.on("SIGINT", () => {
@@ -181,6 +197,8 @@ try {
     console.error(`\n💥 引擎崩溃: ${error instanceof Error ? error.message : String(error)}`);
   }
   exitCode = 1;
+} finally {
+  for (const client of mcpClients) await client.close();
 }
 
 const totals = session.totals;

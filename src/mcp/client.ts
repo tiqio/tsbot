@@ -27,6 +27,8 @@ export class McpClient {
     private readonly connection: JsonRpcConnection,
     private readonly info: McpServerInfo,
     private readonly caps: McpCapabilities,
+    /** 协商出来的版本（服务端可能回的和客户端发的不一样） */
+    readonly protocolVersion: string,
   ) {}
 
   /** 拉起进程并完成握手；失败时会把子进程杀掉，不留孤儿 */
@@ -67,7 +69,14 @@ export class McpClient {
         `[mcp:${config.name}] ✅ 已连接 ${init.serverInfo.name}@${init.serverInfo.version}`,
       );
 
-      return new McpClient(config.name, child, connection, init.serverInfo, init.capabilities);
+      return new McpClient(
+        config.name,
+        child,
+        connection,
+        init.serverInfo,
+        init.capabilities,
+        init.protocolVersion,
+      );
     } catch (error) {
       child.kill();
       throw error;

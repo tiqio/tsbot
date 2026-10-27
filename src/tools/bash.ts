@@ -26,6 +26,24 @@ export interface RunOutcome {
   timedOut: boolean;
 }
 
+/**
+ * ch22：把子进程输出解码成字符串。
+ *
+ * Windows 的 cmd / 老工具经常吐 GBK，直接 toString("utf8") 就是一屏乱码。
+ * 先用严格 UTF-8 解一次，失败再退回 GBK；两者都不行就走替换字符。
+ */
+function decode(buffer: Buffer): string {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+  } catch {
+    try {
+      return new TextDecoder("gbk").decode(buffer);
+    } catch {
+      return buffer.toString("utf8");
+    }
+  }
+}
+
 /** 执行一条 shell 命令；工具层和跑分框架都用它，保证行为一致 */
 export function runShell(
   command: string,
@@ -44,23 +62,30 @@ export function runShell(
       signal: combined,
     });
 
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk: Buffer) => (stdout += chunk.toString("utf8")));
-    child.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString("utf8")));
+    // 按 Buffer 收集，最后一次性解码：避免多字节字符被 chunk 边界劈开
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
+    child.stdout.on("data", (chunk: Buffer) => stdoutChunks.push(chunk));
+    child.stderr.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
 
-    child.once("error", (error: Error & { code?: string }) => {
+    const finish = (exitCode: number | null): void =>
+      resolve({
+        stdout: decode(Buffer.concat(stdoutChunks)),
+        stderr: decode(Buffer.concat(stderrChunks)),
+        exitCode,
+        timedOut: timeout.aborted,
+      });
+
+    child.once("error", (error: Error) => {
       // 被信号中止时 Node 会同时抛 AbortError 和 close 事件
       if (error.name === "AbortError") {
-        resolve({ stdout, stderr, exitCode: null, timedOut: timeout.aborted });
+        finish(null);
         return;
       }
       reject(new Error(`启动命令失败: ${error.message}`));
     });
 
-    child.once("close", (code) => {
-      resolve({ stdout, stderr, exitCode: code, timedOut: timeout.aborted });
-    });
+    child.once("close", (code) => finish(code));
   });
 }
 
@@ -81,7 +106,14 @@ export class BashTool implements Tool<typeof schema> {
       this.workDir,
       ctx.signal,
     );
-    return render(stdout, stderr, exitCode, timedOut);
+    const text = render(stdout, stderr, exitCode, timedOut);
+
+    // 非零退出码 / 超时都视为"工具失败"：让 registry 标 isError，
+    // 模型才会走 ch14 的救援指南，而不是把错误当成正常输出读过去。
+    if (exitCode !== 0 || timedOut) {
+      throw new Error(text);
+    }
+    return text;
   }
 }
 

@@ -17,11 +17,10 @@ describe("bash 工具", () => {
     expect(out.trim()).toBe("tsbot-ok");
   });
 
-  test("非零退出码被标记为报错文本", async () => {
+  test("非零退出码抛错，由 registry 标成 isError", async () => {
     const dir = await tempDir();
     const tool = new BashTool(dir);
-    const out = await tool.execute({ command: "exit 3" });
-    expect(out).toContain("退出码 3");
+    await expect(tool.execute({ command: "exit 3" })).rejects.toThrow("退出码 3");
   });
 
   test("命令在工作区内执行", async () => {

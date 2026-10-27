@@ -11,7 +11,7 @@
     "claw": "bun run src/bin/claw.ts",
     "bench": "bun run src/bin/bench.ts",
     "agentops": "bun run src/bin/agentops.ts",
-    "demo": "bun run src/bin/claw.ts --provider mock --dir ./workspace --prompt \"读一下 AGENTS.md 和 nginx.conf，告诉我 502 的原因\"",
+    "demo": "bun run src/bin/demo.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },

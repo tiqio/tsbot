@@ -9,9 +9,11 @@
  */
 import { createServer } from "node:http";
 import { globalSessionManager } from "../context/session.ts";
+import type { Session } from "../context/session.ts";
 import type { AgentEngine } from "../engine/loop.ts";
 import type { Reporter } from "../engine/reporter.ts";
 import { globalApprovalManager } from "./approval.ts";
+import { runWithNotifier } from "./context.ts";
 
 const FEISHU_BASE = "https://open.feishu.cn/open-apis";
 const MAX_REGISTERED_MESSAGES = 50;
@@ -114,6 +116,11 @@ export class FeishuReporter implements Reporter {
   onMessage(content: string): void {
     if (content.trim()) void this.client.sendText(this.chatId, content);
   }
+
+  /** ch22：给审批中间件用的通用通知出口 */
+  notify(text: string): void {
+    void this.client.sendText(this.chatId, text);
+  }
 }
 
 interface FeishuEventBody {
@@ -140,7 +147,7 @@ export function extractText(content: string | undefined): string {
   }
 }
 
-export type EngineFactory = () => AgentEngine;
+export type EngineFactory = (session: Session) => AgentEngine;
 
 export class FeishuBot {
   private readonly client: FeishuClient;
@@ -155,14 +162,17 @@ export class FeishuBot {
   /** 收到普通消息：起一个 Agent 会话，把过程与结果都发回群里 */
   private async handlePrompt(chatId: string, prompt: string): Promise<void> {
     const reporter = new FeishuReporter(this.client, chatId);
-    const engine = this.factory();
 
     // 每个群一个 Session：上下文彼此隔离，账单也分得清
     const session = globalSessionManager.getOrCreate(chatId, this.config.workDir);
     session.append({ role: "user", content: prompt });
 
+    // ch22：每次请求都新建引擎，让 CostTracker 绑到这个群自己的账本上
+    const engine = this.factory(session);
+
     try {
-      await engine.run(session, { reporter });
+      // 审批中间件通过 AsyncLocalStorage 拿到"本次请求"的通知出口
+      await runWithNotifier(reporter, () => engine.run(session, { reporter }));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       await this.client.sendText(chatId, `❌ Agent 运行崩溃: ${message}`);

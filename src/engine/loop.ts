@@ -7,11 +7,11 @@
  */
 import type { LLMProvider } from "../provider/types.ts";
 import type { Registry } from "../tools/registry.ts";
-import type { Message } from "../schema/message.ts";
 import { PromptComposer } from "../context/composer.ts";
 import { Compactor } from "../context/compactor.ts";
 import { RecoveryManager } from "../context/recovery.ts";
 import type { Session } from "../context/session.ts";
+import { ReminderInjector } from "./reminder.ts";
 import type { Reporter } from "./reporter.ts";
 
 export interface EngineOptions {
@@ -33,6 +33,7 @@ export class AgentEngine {
   private readonly planMode: boolean;
   private readonly compactor: Compactor;
   private readonly recovery = new RecoveryManager();
+  private readonly injector = new ReminderInjector();
 
   constructor(
     private readonly provider: LLMProvider,
@@ -111,7 +112,7 @@ export class AgentEngine {
 
       // ch08：并发执行，Promise.all 保持入参顺序
       const observations = await Promise.all(
-        toolCalls.map(async (toolCall): Promise<Message> => {
+        toolCalls.map(async (toolCall) => {
           reporter?.onToolCall(toolCall.name, JSON.stringify(toolCall.arguments));
           console.log(`  -> 🛠️ 执行工具: ${toolCall.name}`);
 
@@ -130,14 +131,28 @@ export class AgentEngine {
           );
 
           return {
-            role: "user",
-            content: finalOutput,
-            toolCallId: toolCall.id,
+            call: toolCall,
+            result,
+            message: {
+              role: "user" as const,
+              content: finalOutput,
+              toolCallId: toolCall.id,
+            },
           };
         }),
       );
 
-      session.append(...observations);
+      session.append(...observations.map((item) => item.message));
+
+      // ch15：拿本轮第一个工具调用做死循环探测（与原书一致）
+      const first = observations[0];
+      if (first) {
+        const reminder = this.injector.checkAndInject(first.call, first.result);
+        if (reminder) {
+          session.append(reminder);
+          reporter?.onMessage(reminder.content);
+        }
+      }
     }
   }
 }

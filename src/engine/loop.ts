@@ -1,8 +1,8 @@
 /**
- * ch11：引擎不再持有对话历史 —— 历史属于 Session。
+ * 主循环总装。
  *
- * ch17：再加一个 runSub —— 一次性的受限子循环，
- * 只给只读工具、最多 10 轮、结果压缩成一段摘要。
+ * ch09 Reporter / ch11 Session / ch12 压缩 / ch13 PlanMode 与协议占位 /
+ * ch14 恢复指南 / ch15 死循环探测 / ch17 子智能体 / ch19 链路追踪。
  */
 import type { LLMProvider } from "../provider/types.ts";
 import type { Registry } from "../tools/registry.ts";
@@ -11,6 +11,7 @@ import { PromptComposer } from "../context/composer.ts";
 import { Compactor } from "../context/compactor.ts";
 import { RecoveryManager } from "../context/recovery.ts";
 import type { Session } from "../context/session.ts";
+import { Span, exportTrace } from "../observability/trace.ts";
 import { ReminderInjector } from "./reminder.ts";
 import type { Reporter } from "./reporter.ts";
 
@@ -23,6 +24,7 @@ const SUBAGENT_SYSTEM_PROMPT = `你是一个专门负责深度探索的探路者
 3. 当且仅当找到确切线索后，停止调用工具，直接输出纯文本汇报。主架构师会根据你的汇报做决策。`;
 
 const MAX_SUB_TURNS = 10;
+const WORKING_MEMORY_LIMIT = 20;
 
 export interface EngineOptions {
   /** 慢思考模式：每轮先做一次无工具的推理 */
@@ -58,10 +60,28 @@ export class AgentEngine {
   async run(session: Session, options: RunOptions = {}): Promise<void> {
     const { signal, reporter } = options;
 
+    const rootSpan = new Span("Agent.Run")
+      .addAttribute("SessionID", session.id)
+      .addAttribute("WorkDir", session.workDir)
+      .addAttribute("PlanMode", this.planMode);
+
+    try {
+      await this.loop(session, rootSpan, signal, reporter);
+    } finally {
+      rootSpan.end();
+      const file = await exportTrace(rootSpan, session.workDir, session.id);
+      console.log(`📊 [Tracing] 执行链路已保存至 ${file}`);
+    }
+  }
+
+  private async loop(
+    session: Session,
+    rootSpan: Span,
+    signal: AbortSignal | undefined,
+    reporter: Reporter | undefined,
+  ): Promise<void> {
     console.log(`[Engine] 会话启动: ${session.id}，工作区: ${session.workDir}`);
-    console.log(
-      `[Engine] Thinking=${this.enableThinking} PlanMode=${this.planMode}`,
-    );
+    console.log(`[Engine] Thinking=${this.enableThinking} PlanMode=${this.planMode}`);
 
     const systemMsg = await new PromptComposer(session.workDir, this.planMode).build();
 
@@ -69,13 +89,13 @@ export class AgentEngine {
 
     for (;;) {
       turnCount++;
+      const turnSpan = new Span(`Turn-${turnCount}`, rootSpan);
       console.log(`\n========== [Turn ${turnCount}] 开始 ==========`);
 
       const availableTools = this.registry.getAvailableTools();
 
-      // ch13：截断后的第一条可能是 assistant（比如刚执行完工具就重启），
-      // 协议要求首条非 system 消息必须是 user，这里强行插一条占位符把协议"稳住"。
-      const memory = session.getWorkingMemory(20);
+      // ch13：历史首条必须是 user，否则协议会报错
+      const memory = session.getWorkingMemory(WORKING_MEMORY_LIMIT);
       if (memory.length > 0 && memory[0]?.role !== "user") {
         memory.unshift({
           role: "user",
@@ -86,25 +106,35 @@ export class AgentEngine {
 
       // ch12：装配好的上下文先过压缩器，再发给模型
       const contextHistory = this.compactor.compact([systemMsg, ...memory]);
+      turnSpan.addAttribute("context_message_count", contextHistory.length);
 
       // ============ Phase 1: Thinking ============
       if (this.enableThinking) {
         console.log("[Engine][Phase 1] 剥夺工具访问权，强制进入慢思考与规划阶段...");
         reporter?.onThinking();
 
+        const thinkSpan = new Span("LLM.Thinking", turnSpan);
         const thinkResp = await this.provider.generate(contextHistory, [], signal);
+        thinkSpan.end();
+
         if (thinkResp.content) {
           contextHistory.push(thinkResp);
+          turnSpan.addAttribute("thinking", thinkResp.content.slice(0, 200));
         }
       }
 
       // ============ Phase 2: Action ============
       console.log("[Engine][Phase 2] 恢复工具挂载，等待模型采取行动...");
+      const actionSpan = new Span("LLM.Action", turnSpan).addAttribute(
+        "tool_count",
+        availableTools.length,
+      );
       const actionResp = await this.provider.generate(
         contextHistory,
         availableTools,
         signal,
       );
+      actionSpan.end();
       session.append(actionResp);
 
       if (actionResp.content) {
@@ -115,6 +145,7 @@ export class AgentEngine {
       const toolCalls = actionResp.toolCalls ?? [];
       if (toolCalls.length === 0) {
         console.log("[Engine] 模型未请求调用工具，任务宣告完成。");
+        turnSpan.end();
         break;
       }
 
@@ -123,6 +154,10 @@ export class AgentEngine {
       // ch08：并发执行，Promise.all 保持入参顺序
       const observations = await Promise.all(
         toolCalls.map(async (toolCall) => {
+          const toolSpan = new Span(`Tool.${toolCall.name}`, turnSpan).addAttribute(
+            "arguments",
+            JSON.stringify(toolCall.arguments).slice(0, 500),
+          );
           reporter?.onToolCall(toolCall.name, JSON.stringify(toolCall.arguments));
           console.log(`  -> 🛠️ 执行工具: ${toolCall.name}`);
 
@@ -132,6 +167,10 @@ export class AgentEngine {
           const finalOutput = result.isError
             ? this.recovery.analyzeAndInject(toolCall.name, result.output)
             : result.output;
+
+          toolSpan.addAttribute("is_error", result.isError);
+          toolSpan.addAttribute("output_preview", finalOutput.slice(0, 200));
+          toolSpan.end();
 
           reporter?.onToolResult(toolCall.name, finalOutput, result.isError);
           console.log(
@@ -163,6 +202,8 @@ export class AgentEngine {
           reporter?.onMessage(reminder.content);
         }
       }
+
+      turnSpan.end();
     }
   }
 
@@ -189,7 +230,7 @@ export class AgentEngine {
     for (let turn = 1; turn <= MAX_SUB_TURNS; turn++) {
       const compacted = this.compactor.compact(history);
 
-      // 子任务要快：不传 tools=nil 做慢思考，直接出手
+      // 子任务要快：不做慢思考，直接出手
       const actionResp = await this.provider.generate(
         compacted,
         registry.getAvailableTools(),

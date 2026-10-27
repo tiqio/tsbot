@@ -80,25 +80,31 @@ export class AgentEngine {
 
       console.log(`[Engine] 模型请求调用 ${toolCalls.length} 个工具...`);
 
-      for (const toolCall of toolCalls) {
-        console.log(
-          `  -> 🛠️ 执行工具: ${toolCall.name}, 参数: ${JSON.stringify(toolCall.arguments)}`,
-        );
+      // ch08：并发执行。Go 版要起 goroutine + WaitGroup，还得用 idx 手动把结果
+      // 塞回 observationMsgs[i] 才能对齐顺序；Promise.all 天然按入参顺序返回。
+      const observations = await Promise.all(
+        toolCalls.map(async (toolCall): Promise<Message> => {
+          console.log(
+            `  -> 🛠️ 执行工具: ${toolCall.name}, 参数: ${JSON.stringify(toolCall.arguments)}`,
+          );
 
-        const result = await this.registry.execute(toolCall, signal);
+          const result = await this.registry.execute(toolCall, signal);
 
-        if (result.isError) {
-          console.log(`  -> ❌ 工具执行报错: ${result.output}`);
-        } else {
-          console.log(`  -> ✅ 工具执行成功 (返回 ${result.output.length} 字节)`);
-        }
+          if (result.isError) {
+            console.log(`  -> ❌ 工具执行报错 [${toolCall.name}]: ${result.output}`);
+          } else {
+            console.log(`  -> ✅ 工具执行成功 [${toolCall.name}] (返回 ${result.output.length} 字节)`);
+          }
 
-        contextHistory.push({
-          role: "user",
-          content: result.output,
-          toolCallId: toolCall.id,
-        });
-      }
+          return {
+            role: "user",
+            content: result.output,
+            toolCallId: toolCall.id,
+          };
+        }),
+      );
+
+      contextHistory.push(...observations);
     }
   }
 }

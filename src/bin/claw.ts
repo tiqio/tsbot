@@ -1,12 +1,12 @@
 /**
- * ch05：挂上第一个真工具（read_file），其余仍是 mock provider。
+ * ch06：注册 read / write / bash 三个原语。
  */
 import { parseArgs } from "node:util";
 import { AgentEngine } from "../engine/loop.ts";
 import { createProvider, detectProviderKind } from "../provider/factory.ts";
 import { ScriptedProvider } from "../provider/mock.ts";
 import type { LLMProvider } from "../provider/types.ts";
-import { ReadFileTool } from "../tools/read-file.ts";
+import { createTools } from "../tools/index.ts";
 import { ToolRegistry } from "../tools/registry.ts";
 
 const { values } = parseArgs({
@@ -15,11 +15,12 @@ const { values } = parseArgs({
     dir: { type: "string" },
     provider: { type: "string" },
     model: { type: "string" },
+    thinking: { type: "boolean" },
   },
 });
 
 const workDir = values.dir ?? process.cwd();
-const prompt = values.prompt ?? "帮我读一下 README.md，告诉我这是什么东西。";
+const prompt = values.prompt ?? "先看看 README，再用 bash 确认一下当前目录。";
 const kind = (values.provider as ReturnType<typeof detectProviderKind>) ?? detectProviderKind();
 
 let provider: LLMProvider;
@@ -28,14 +29,15 @@ if (kind === "mock") {
   provider = new ScriptedProvider([
     {
       role: "assistant",
-      content: "先读一下 README.md。",
+      content: "先读 README，再确认一下当前目录。",
       toolCalls: [
         { id: "call_read_1", name: "read_file", arguments: { path: "README.md" } },
+        { id: "call_bash_1", name: "bash", arguments: { command: "echo tsbot-ok" } },
       ],
     },
     {
       role: "assistant",
-      content: "README 说明这是一个把 go-tiny-claw 移植到 TypeScript / Bun 的项目。",
+      content: "README 是项目说明，bash 输出 tsbot-ok，环境正常。",
     },
   ]);
 } else {
@@ -44,7 +46,10 @@ if (kind === "mock") {
 }
 
 const registry = new ToolRegistry();
-registry.register(new ReadFileTool(workDir));
+for (const tool of createTools(workDir)) registry.register(tool);
 
-const engine = new AgentEngine(provider, registry, { workDir });
+const engine = new AgentEngine(provider, registry, {
+  workDir,
+  enableThinking: values.thinking ?? false,
+});
 await engine.run(prompt);

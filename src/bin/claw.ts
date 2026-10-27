@@ -1,7 +1,9 @@
 /**
- * ch06：注册 read / write / bash 三个原语。
+ * ch11：会话化。一次 CLI 调用 = 一个 Session 里的若干轮。
  */
+import { resolve } from "node:path";
 import { parseArgs } from "node:util";
+import { globalSessionManager } from "../context/session.ts";
 import { AgentEngine } from "../engine/loop.ts";
 import { TerminalReporter } from "../engine/terminal-reporter.ts";
 import { createProvider, detectProviderKind } from "../provider/factory.ts";
@@ -16,12 +18,14 @@ const { values } = parseArgs({
     dir: { type: "string" },
     provider: { type: "string" },
     model: { type: "string" },
+    session: { type: "string" },
     thinking: { type: "boolean" },
   },
 });
 
-const workDir = values.dir ?? process.cwd();
+const workDir = resolve(values.dir ?? process.cwd());
 const prompt = values.prompt ?? "在工作区生成一份 notes.md，并把版本号改成 v2.0.0。";
+const sessionId = values.session ?? "cli_default_session";
 const kind = (values.provider as ReturnType<typeof detectProviderKind>) ?? detectProviderKind();
 
 let provider: LLMProvider;
@@ -64,8 +68,12 @@ if (kind === "mock") {
 const registry = new ToolRegistry();
 for (const tool of createTools(workDir)) registry.register(tool);
 
+const session = globalSessionManager.getOrCreate(sessionId, workDir);
+session.append({ role: "user", content: prompt });
+
 const engine = new AgentEngine(provider, registry, {
-  workDir,
   enableThinking: values.thinking ?? false,
 });
-await engine.run(prompt, { reporter: new TerminalReporter() });
+await engine.run(session, { reporter: new TerminalReporter() });
+
+console.log(`\n[Session ${session.id}] 共 ${session.length} 条消息，工作区 ${session.workDir}`);

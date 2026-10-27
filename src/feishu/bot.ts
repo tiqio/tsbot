@@ -8,6 +8,7 @@
  * 没有做 encrypt_key 的 AES 解密和签名校验。生产环境必须补上。
  */
 import { createServer } from "node:http";
+import { globalSessionManager } from "../context/session.ts";
 import type { AgentEngine } from "../engine/loop.ts";
 import type { Reporter } from "../engine/reporter.ts";
 
@@ -155,8 +156,12 @@ export class FeishuBot {
     const reporter = new FeishuReporter(this.client, chatId);
     const engine = this.factory();
 
+    // 每个群一个 Session：上下文彼此隔离，账单也分得清
+    const session = globalSessionManager.getOrCreate(chatId, this.config.workDir);
+    session.append({ role: "user", content: prompt });
+
     try {
-      await engine.run(prompt, { reporter });
+      await engine.run(session, { reporter });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       await this.client.sendText(chatId, `❌ Agent 运行崩溃: ${message}`);

@@ -1,25 +1,25 @@
 /**
- * ch06：工具清单工厂。
+ * 工具清单工厂。
  *
- * 三个入口（claw / bench / agentops）都要注册同一批工具，
- * 集中在这里避免每处重复；后续章节加工具只改这一个文件。
+ * 三个入口（claw / bench / agentops）注册同一批工具，集中在这里；
+ * 加工具只改这一个文件。
  */
-import type { Tool } from "./tool.ts";
-import { BashTool } from "./bash.ts";
-import { EditFileTool } from "./edit-file.ts";
-import { ReadFileTool } from "./read-file.ts";
-import { WriteFileTool } from "./write-file.ts";
+import { bashTool } from "./bash";
+import { editFileTool } from "./edit-file";
+import { readFileTool } from "./read-file";
+import type { Tool } from "./tool";
+import { writeFileTool } from "./write-file";
 
 export function createTools(workDir: string): Tool[] {
   return [
-    new ReadFileTool(workDir),
-    new WriteFileTool(workDir),
-    new EditFileTool(workDir),
-    new BashTool(workDir),
+    readFileTool(workDir),
+    writeFileTool(workDir),
+    editFileTool(workDir),
+    bashTool(workDir),
   ];
 }
 
-/** ch17：只读子集，给子智能体用；它物理上拿不到写工具 */
+/** 只读子集，给子智能体用；它物理上拿不到写工具 */
 export function createReadOnlyTools(workDir: string): Tool[] {
-  return [new ReadFileTool(workDir), new BashTool(workDir)];
+  return [readFileTool(workDir), bashTool(workDir)];
 }

@@ -7,7 +7,7 @@
  * 注意：成功一次就清空计数，避免把"改对了再试一次"误判成死循环。
  */
 import { createHash } from "node:crypto";
-import type { Message, ToolCall, ToolResult } from "../schema/message.ts";
+import type { Message, ToolCall, ToolResult } from "../schema/message";
 
 const MAX_CONSECUTIVE_FAILURES = 3;
 

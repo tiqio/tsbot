@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PromptComposer } from "../src/context/composer.ts";
-import { SkillLoader, parseSkillMd } from "../src/context/skill.ts";
+import { PromptComposer } from "../src/context/composer";
+import { SkillLoader, parseSkillMd } from "../src/context/skill";
 
 describe("SKILL.md 解析", () => {
   test("剥离 frontmatter，读出 name / description", () => {

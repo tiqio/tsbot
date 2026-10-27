@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { Session } from "../src/context/session.ts";
-import { CostTracker, costOf } from "../src/observability/tracker.ts";
-import { ScriptedProvider } from "../src/provider/mock.ts";
+import { Session } from "../src/context/session";
+import { CostTracker, costOf } from "../src/observability/tracker";
+import { ScriptedProvider } from "../src/provider/mock";
 
 describe("计费", () => {
   test("按百万 token 单价折算", () => {

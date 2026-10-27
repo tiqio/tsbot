@@ -8,7 +8,7 @@
  * （role=user 且带 toolCallId），模型会看到没有对应 tool_use 的结果而报错，
  * 所以要从头部剥掉。
  */
-import type { Message, Usage } from "../schema/message.ts";
+import type { Message, Usage } from "../schema/message";
 
 export interface SessionTotals {
   promptTokens: number;

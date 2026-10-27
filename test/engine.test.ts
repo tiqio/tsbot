@@ -1,27 +1,25 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
-import { Session } from "../src/context/session.ts";
-import { AgentEngine } from "../src/engine/loop.ts";
-import { ScriptedProvider } from "../src/provider/mock.ts";
-import type { LLMProvider } from "../src/provider/types.ts";
-import type { Message } from "../src/schema/message.ts";
-import { ToolRegistry } from "../src/tools/registry.ts";
-import type { Tool } from "../src/tools/tool.ts";
+import { Session } from "../src/context/session";
+import { AgentEngine } from "../src/engine/loop";
+import { ScriptedProvider } from "../src/provider/mock";
+import type { LLMProvider } from "../src/provider/types";
+import type { Message } from "../src/schema/message";
+import { createRegistry } from "../src/tools/registry";
+import { defineTool } from "../src/tools/tool";
 
-const sleepSchema = z.object({ ms: z.number() });
-
-function makeSleepTool(log: string[]): Tool<typeof sleepSchema> {
-  return {
+function makeSleepTool(log: string[]) {
+  return defineTool({
     name: "sleep",
     description: "睡一会儿",
-    schema: sleepSchema,
-    async execute(args) {
-      log.push(`start:${args.ms}`);
-      await Bun.sleep(args.ms);
-      log.push(`end:${args.ms}`);
-      return `slept ${args.ms}`;
+    schema: z.object({ ms: z.number() }),
+    async run({ ms }) {
+      log.push(`start:${ms}`);
+      await Bun.sleep(ms);
+      log.push(`end:${ms}`);
+      return `slept ${ms}`;
     },
-  };
+  });
 }
 
 function newSession(prompt: string): Session {
@@ -33,7 +31,7 @@ function newSession(prompt: string): Session {
 describe("主循环", () => {
   test("同一轮的多个工具调用并发执行，且观察结果顺序与入参一致", async () => {
     const log: string[] = [];
-    const registry = new ToolRegistry();
+    const registry = createRegistry();
     registry.register(makeSleepTool(log));
 
     const provider = new ScriptedProvider([
@@ -68,23 +66,24 @@ describe("主循环", () => {
   });
 
   test("没有工具调用时循环立即结束", async () => {
-    const registry = new ToolRegistry();
     const provider = new ScriptedProvider([{ role: "assistant", content: "直接回答" }]);
-    const engine = new AgentEngine(provider, registry);
+    const engine = new AgentEngine(provider, createRegistry());
 
     await expect(engine.run(newSession("你好"))).resolves.toBeUndefined();
   });
 
   test("工具报错不会中断循环，错误作为观察结果回灌", async () => {
-    const registry = new ToolRegistry();
-    registry.register({
-      name: "boom",
-      description: "永远失败",
-      schema: z.object({}),
-      async execute(): Promise<string> {
-        throw new Error("磁盘满了");
-      },
-    });
+    const registry = createRegistry();
+    registry.register(
+      defineTool({
+        name: "boom",
+        description: "永远失败",
+        schema: z.object({}),
+        async run(): Promise<string> {
+          throw new Error("磁盘满了");
+        },
+      }),
+    );
 
     const provider = new ScriptedProvider([
       { role: "assistant", content: "", toolCalls: [{ id: "c1", name: "boom", arguments: {} }] },
@@ -101,7 +100,6 @@ describe("主循环", () => {
   });
 
   test("历史首条是 assistant 时，注入占位 user 消息稳住协议", async () => {
-    const registry = new ToolRegistry();
     const calls: Message[][] = [];
     const provider: LLMProvider = {
       async generate(messages) {
@@ -110,7 +108,7 @@ describe("主循环", () => {
       },
     };
 
-    const engine = new AgentEngine(provider, registry);
+    const engine = new AgentEngine(provider, createRegistry());
     const session = new Session("resume", process.cwd());
     session.append({ role: "assistant", content: "上一轮的回答" });
 
@@ -123,7 +121,7 @@ describe("主循环", () => {
   });
 
   test("超过 maxTurns 抛错，避免无限跑飞", async () => {
-    const registry = new ToolRegistry();
+    const registry = createRegistry();
     registry.register(makeSleepTool([]));
 
     const steps = Array.from({ length: 5 }, (_, index) => ({

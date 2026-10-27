@@ -5,8 +5,8 @@
  * 按顺序吐出预先写好的 assistant 消息，工具仍然真实执行。
  * ch22 的演示脚本会用它把完整的运维排障流程跑一遍。
  */
-import type { LLMProvider } from "./types.ts";
-import type { Message } from "../schema/message.ts";
+import type { LLMProvider } from "./types";
+import type { Message } from "../schema/message";
 
 export class ScriptedProvider implements LLMProvider {
   private index = 0;

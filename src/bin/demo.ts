@@ -7,14 +7,14 @@
 import { cp, mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { Session } from "../context/session.ts";
-import { AgentEngine } from "../engine/loop.ts";
-import { TerminalReporter } from "../engine/terminal-reporter.ts";
-import { globalApprovalManager, isDangerousCommand } from "../feishu/approval.ts";
-import { CostTracker } from "../observability/tracker.ts";
-import { ScriptedProvider } from "../provider/mock.ts";
-import { createTools } from "../tools/index.ts";
-import { ToolRegistry } from "../tools/registry.ts";
+import { Session } from "../context/session";
+import { AgentEngine } from "../engine/loop";
+import { TerminalReporter } from "../engine/terminal-reporter";
+import { globalApprovalManager, isDangerousCommand } from "../feishu/approval";
+import { CostTracker } from "../observability/tracker";
+import { ScriptedProvider } from "../provider/mock";
+import { createTools } from "../tools/index";
+import { createRegistry } from "../tools/registry";
 
 const template = resolve(process.cwd(), "workspace");
 const workDir = await mkdtemp(join(tmpdir(), "tsbot-demo-"));
@@ -73,7 +73,7 @@ console.log("🧪 离线演示：模型是脚本化的，工具/审批/追踪是
 console.log(`📁 演示沙箱: ${workDir}`);
 console.log("==================================================");
 
-const registry = new ToolRegistry();
+const registry = createRegistry();
 for (const tool of createTools(workDir)) registry.register(tool);
 
 // 和 agentops 一样的审批中间件，只是"人类"由定时器扮演

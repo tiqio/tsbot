@@ -7,8 +7,8 @@
  * 与 Go 版的差异：Go 用 map 查价格，这里用 Record 直接下标；
  * 价格单位是"元 / 百万 token"，只作示例，别拿去做财务。
  */
-import type { LLMProvider } from "../provider/types.ts";
-import type { Usage } from "../schema/message.ts";
+import type { LLMProvider } from "../provider/types";
+import type { Usage } from "../schema/message";
 
 export interface ModelPrice {
   /** 输入价格：元 / 1M tokens */

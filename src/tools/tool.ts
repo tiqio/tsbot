@@ -1,10 +1,11 @@
 /**
- * ch05：工具的统一形状。
+ * 工具的唯一形状：一份 zod schema + 一个 run。
  *
- * 这是 TS 版和 Go 版结构上差别最大的地方：
- * Go 版每个工具要写两份东西——`Definition()` 里的 JSON Schema 手写 map，
- * 和 `Execute()` 里的 args struct。两者没有任何编译期联系，改一个忘一个就漂移。
- * 这里只有一份 zod schema，工具定义、运行时校验、execute 的参数类型都由它派生。
+ * 整个仓库只有这一处出现泛型；工具文件只写 name / description / schema / run
+ * 四个字段，读者不需要解码 `Tool<typeof schema>` 或 `z.infer`。
+ *
+ * 这也是主流 TS Agent 项目（Claude Code / OpenCode 一类）的真实风格：
+ * 对象字面量 + 一个 helper，而不是类层次。
  */
 import type { z } from "zod";
 
@@ -16,5 +17,10 @@ export interface Tool<Args extends z.ZodType = z.ZodType> {
   readonly name: string;
   readonly description: string;
   readonly schema: Args;
-  execute(args: z.infer<Args>, ctx: ToolContext): Promise<string>;
+  /** 参数已由注册表用 schema 校验过，这里拿到的是收窄后的类型 */
+  run(args: z.infer<Args>, ctx: ToolContext): Promise<string>;
+}
+
+export function defineTool<Args extends z.ZodType>(tool: Tool<Args>): Tool<Args> {
+  return tool;
 }

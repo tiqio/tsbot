@@ -1,7 +1,7 @@
 /**
  * ch09：终端 Reporter —— ANSI 上色，参数与输出都做截断。
  */
-import type { Reporter } from "./reporter.ts";
+import type { Reporter } from "./reporter";
 
 const colorEnabled = process.stdout.isTTY === true && !process.env.NO_COLOR;
 const paint = (code: string) => (text: string) =>

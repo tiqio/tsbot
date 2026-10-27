@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Span, exportTrace } from "../src/observability/trace.ts";
+import { Span, exportTrace } from "../src/observability/trace";
 
 describe("链路追踪", () => {
   test("父子关系与属性", () => {

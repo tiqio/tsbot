@@ -9,7 +9,7 @@
  * 与 Go 版差异：Go 用 len(string) 数字节，中文一个字 3 字节；
  * 这里用 JS 的 string.length 数字符（UTF-16 code unit），阈值含义不同但更直观。
  */
-import type { Message } from "../schema/message.ts";
+import type { Message } from "../schema/message";
 
 const EARLY_OUTPUT_THRESHOLD = 200;
 const RECENT_OUTPUT_MAX = 1000;

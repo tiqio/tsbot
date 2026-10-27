@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { BenchmarkRunner } from "../src/eval/benchmark.ts";
-import { ScriptedProvider } from "../src/provider/mock.ts";
+import { BenchmarkRunner } from "../src/eval/benchmark";
+import { ScriptedProvider } from "../src/provider/mock";
 
 const setupConfig = `node -e "require('fs').writeFileSync('config.json', JSON.stringify({name:'tsbot',version:'v1.0.0'},null,2))"`;
 const validateConfig = `node -e "process.exit(require('./config.json').version==='v2.0.0'?0:1)"`;

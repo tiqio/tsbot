@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { RecoveryManager } from "../src/context/recovery.ts";
+import { RecoveryManager } from "../src/context/recovery";
 
 const recovery = new RecoveryManager();
 

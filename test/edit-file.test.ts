@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { fuzzyReplace } from "../src/tools/edit-file.ts";
+import { fuzzyReplace } from "../src/tools/edit-file";
 
 describe("fuzzyReplace 四级匹配", () => {
   test("L1 精确匹配且唯一", () => {

@@ -5,9 +5,9 @@
  * Go 版直接把原始 bytes 往下传；这里显式 try/parse，解析失败就把原文留给
  * 工具的 zod 校验去报错，错误信息对模型更可读。
  */
-import type { LLMProvider } from "./types.ts";
-import type { JsonSchema, Message, ToolDefinition } from "../schema/message.ts";
-import { postJson } from "./http.ts";
+import type { LLMProvider } from "./types";
+import type { JsonSchema, Message, ToolDefinition } from "../schema/message";
+import { postJson } from "./http";
 
 export interface OpenAIProviderOptions {
   apiKey: string;

@@ -7,8 +7,8 @@
  */
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Message } from "../schema/message.ts";
-import { SkillLoader } from "./skill.ts";
+import type { Message } from "../schema/message";
+import { SkillLoader } from "./skill";
 
 export class PromptComposer {
   private readonly skillLoader: SkillLoader;

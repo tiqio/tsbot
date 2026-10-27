@@ -5,9 +5,9 @@
  *
  * 需要真实模型（每个用例都要重新想一遍怎么做），所以要求 API Key。
  */
-import { createProvider, detectProviderKind } from "../provider/factory.ts";
-import { BenchmarkRunner } from "../eval/benchmark.ts";
-import type { TestCase } from "../eval/benchmark.ts";
+import { createProvider, detectProviderKind } from "../provider/factory";
+import { BenchmarkRunner } from "../eval/benchmark";
+import type { TestCase } from "../eval/benchmark";
 
 const kind = detectProviderKind();
 if (kind === "mock") {

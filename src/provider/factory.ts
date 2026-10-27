@@ -4,9 +4,9 @@
  * 同一家模型（智谱 GLM）同时提供 Anthropic 兼容端点和 OpenAI 兼容端点，
  * 这正是接口抽象存在的意义：换协议不改引擎。
  */
-import { AnthropicProvider } from "./anthropic.ts";
-import { OpenAIProvider } from "./openai.ts";
-import type { LLMProvider } from "./types.ts";
+import { AnthropicProvider } from "./anthropic";
+import { OpenAIProvider } from "./openai";
+import type { LLMProvider } from "./types";
 
 export type ProviderKind =
   | "anthropic"

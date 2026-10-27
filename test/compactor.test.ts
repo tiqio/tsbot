@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { Compactor } from "../src/context/compactor.ts";
-import type { Message } from "../src/schema/message.ts";
+import { Compactor } from "../src/context/compactor";
+import type { Message } from "../src/schema/message";
 
 const longText = (n: number) => "x".repeat(n);
 

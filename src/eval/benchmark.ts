@@ -11,14 +11,14 @@
  */
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { Session } from "../context/session.ts";
-import { AgentEngine } from "../engine/loop.ts";
-import { silentReporter } from "../engine/reporter.ts";
-import { CostTracker } from "../observability/tracker.ts";
-import type { LLMProvider } from "../provider/types.ts";
-import { createTools } from "../tools/index.ts";
-import { runShell } from "../tools/bash.ts";
-import { ToolRegistry } from "../tools/registry.ts";
+import { Session } from "../context/session";
+import { AgentEngine } from "../engine/loop";
+import { silentReporter } from "../engine/reporter";
+import { CostTracker } from "../observability/tracker";
+import type { LLMProvider } from "../provider/types";
+import { createTools } from "../tools/index";
+import { runShell } from "../tools/bash";
+import { createRegistry } from "../tools/registry";
 
 export interface TestCase {
   id: string;
@@ -112,7 +112,7 @@ export class BenchmarkRunner {
     const session = new Session(testCase.id, sandbox);
     session.append({ role: "user", content: testCase.taskPrompt });
 
-    const registry = new ToolRegistry();
+    const registry = createRegistry();
     for (const tool of createTools(sandbox)) registry.register(tool);
 
     const provider = new CostTracker(

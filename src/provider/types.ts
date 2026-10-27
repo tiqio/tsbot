@@ -5,7 +5,7 @@
  * 这里把 ctx 换成 AbortSignal —— 取消语义在 JS 世界是显式对象，
  * 而不是一个到处透传的隐式上下文。
  */
-import type { Message, ToolDefinition } from "../schema/message.ts";
+import type { Message, ToolDefinition } from "../schema/message";
 
 export interface LLMProvider {
   /**

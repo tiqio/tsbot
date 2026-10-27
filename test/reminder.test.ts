@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { ReminderInjector } from "../src/engine/reminder.ts";
-import type { ToolCall, ToolResult } from "../src/schema/message.ts";
+import { ReminderInjector } from "../src/engine/reminder";
+import type { ToolCall, ToolResult } from "../src/schema/message";
 
 const failingCall: ToolCall = {
   id: "c1",

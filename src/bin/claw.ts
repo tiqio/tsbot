@@ -6,16 +6,16 @@
  */
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { globalSessionManager } from "../context/session.ts";
-import { AgentEngine } from "../engine/loop.ts";
-import { TerminalReporter } from "../engine/terminal-reporter.ts";
-import { CostTracker } from "../observability/tracker.ts";
-import { createProvider, detectProviderKind } from "../provider/factory.ts";
-import { ScriptedProvider } from "../provider/mock.ts";
-import type { LLMProvider } from "../provider/types.ts";
-import { createReadOnlyTools, createTools } from "../tools/index.ts";
-import { ToolRegistry } from "../tools/registry.ts";
-import { SubagentTool } from "../tools/subagent.ts";
+import { globalSessionManager } from "../context/session";
+import { AgentEngine } from "../engine/loop";
+import { TerminalReporter } from "../engine/terminal-reporter";
+import { CostTracker } from "../observability/tracker";
+import { createProvider, detectProviderKind } from "../provider/factory";
+import { ScriptedProvider } from "../provider/mock";
+import type { LLMProvider } from "../provider/types";
+import { createReadOnlyTools, createTools } from "../tools/index";
+import { createRegistry } from "../tools/registry";
+import { subagentTool } from "../tools/subagent";
 
 const USAGE = `tsbot —— 极简智能体驾驭引擎（TypeScript / Bun 版）
 
@@ -114,7 +114,7 @@ console.log(`🧠 provider=${kind} model=${modelName}`);
 console.log(`💬 会话: ${sessionId}`);
 console.log("==================================================");
 
-const registry = new ToolRegistry();
+const registry = createRegistry();
 for (const tool of createTools(workDir)) registry.register(tool);
 
 const session = globalSessionManager.getOrCreate(sessionId, workDir);
@@ -130,9 +130,9 @@ const engine = new AgentEngine(trackedProvider, registry, {
 });
 
 // ch17：子智能体工具需要引擎自身，所以只能等引擎建好再挂
-const readOnlyRegistry = new ToolRegistry();
+const readOnlyRegistry = createRegistry();
 for (const tool of createReadOnlyTools(workDir)) readOnlyRegistry.register(tool);
-registry.register(new SubagentTool(engine, readOnlyRegistry));
+registry.register(subagentTool(engine, readOnlyRegistry));
 
 // Ctrl+C 中止：AbortSignal 一路传到 provider 的 fetch 与子进程
 const controller = new AbortController();

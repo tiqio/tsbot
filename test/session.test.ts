@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { Session, SessionManager } from "../src/context/session.ts";
-import type { Message } from "../src/schema/message.ts";
+import { Session, SessionManager } from "../src/context/session";
+import type { Message } from "../src/schema/message";
 
 function user(content: string, toolCallId?: string): Message {
   return toolCallId ? { role: "user", content, toolCallId } : { role: "user", content };

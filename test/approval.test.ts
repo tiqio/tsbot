@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
-import { ApprovalManager, isDangerousCommand } from "../src/feishu/approval.ts";
-import { ToolRegistry } from "../src/tools/registry.ts";
+import { ApprovalManager, isDangerousCommand } from "../src/feishu/approval";
+import { createRegistry } from "../src/tools/registry";
+import { defineTool } from "../src/tools/tool";
 
 describe("高危动作判定", () => {
   const cases: Array<[string, string, boolean]> = [
@@ -50,18 +51,20 @@ describe("ApprovalManager", () => {
 
 describe("中间件拦截链", () => {
   test("拒绝时返回 isError 与拒绝理由，工具本体不会被调用", async () => {
-    const registry = new ToolRegistry();
+    const registry = createRegistry();
     let executed = false;
 
-    registry.register({
-      name: "danger",
-      description: "危险工具",
-      schema: z.object({}),
-      async execute() {
-        executed = true;
-        return "done";
-      },
-    });
+    registry.register(
+      defineTool({
+        name: "danger",
+        description: "危险工具",
+        schema: z.object({}),
+        async run() {
+          executed = true;
+          return "done";
+        },
+      }),
+    );
 
     registry.use((call) =>
       call.name === "danger"
@@ -76,17 +79,19 @@ describe("中间件拦截链", () => {
   });
 
   test("多个中间件按挂载顺序执行，任一拒绝即终止", async () => {
-    const registry = new ToolRegistry();
+    const registry = createRegistry();
     const order: string[] = [];
 
-    registry.register({
-      name: "ok",
-      description: "普通工具",
-      schema: z.object({}),
-      async execute() {
-        return "done";
-      },
-    });
+    registry.register(
+      defineTool({
+        name: "ok",
+        description: "普通工具",
+        schema: z.object({}),
+        async run() {
+          return "done";
+        },
+      }),
+    );
 
     registry.use(() => {
       order.push("first");

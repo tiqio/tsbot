@@ -6,15 +6,15 @@
  */
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
-import type { Session } from "../context/session.ts";
-import { AgentEngine } from "../engine/loop.ts";
-import { FeishuBot } from "../feishu/bot.ts";
-import { globalApprovalManager, isDangerousCommand } from "../feishu/approval.ts";
-import { currentNotifier } from "../feishu/context.ts";
-import { CostTracker } from "../observability/tracker.ts";
-import { createProvider, detectProviderKind } from "../provider/factory.ts";
-import { createTools } from "../tools/index.ts";
-import { ToolRegistry } from "../tools/registry.ts";
+import type { Session } from "../context/session";
+import { AgentEngine } from "../engine/loop";
+import { FeishuBot } from "../feishu/bot";
+import { globalApprovalManager, isDangerousCommand } from "../feishu/approval";
+import { currentNotifier } from "../feishu/context";
+import { CostTracker } from "../observability/tracker";
+import { createProvider, detectProviderKind } from "../provider/factory";
+import { createTools } from "../tools/index";
+import { createRegistry } from "../tools/registry";
 
 const appId = process.env.FEISHU_APP_ID;
 const appSecret = process.env.FEISHU_APP_SECRET;
@@ -38,7 +38,7 @@ if (!resolved) {
 const workDir = resolve(process.cwd(), "workspace");
 await mkdir(workDir, { recursive: true });
 
-const registry = new ToolRegistry();
+const registry = createRegistry();
 for (const tool of createTools(workDir)) registry.register(tool);
 
 // 安全拦截：高危动作挂起，等群里的人 approve / reject

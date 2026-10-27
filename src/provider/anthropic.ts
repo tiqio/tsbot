@@ -6,9 +6,9 @@
  * 必须无条件塞一个空 TextBlock 才能绕开智谱的错误码；
  * TS 的联合类型可以直接按需 append，空块只在真的空时才补。
  */
-import type { LLMProvider } from "./types.ts";
-import type { JsonSchema, Message, ToolDefinition } from "../schema/message.ts";
-import { postJson } from "./http.ts";
+import type { LLMProvider } from "./types";
+import type { JsonSchema, Message, ToolDefinition } from "../schema/message";
+import { postJson } from "./http";
 
 export interface AnthropicProviderOptions {
   apiKey: string;

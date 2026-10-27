@@ -8,12 +8,12 @@
  * 没有做 encrypt_key 的 AES 解密和签名校验。生产环境必须补上。
  */
 import { createServer } from "node:http";
-import { globalSessionManager } from "../context/session.ts";
-import type { Session } from "../context/session.ts";
-import type { AgentEngine } from "../engine/loop.ts";
-import type { Reporter } from "../engine/reporter.ts";
-import { globalApprovalManager } from "./approval.ts";
-import { runWithNotifier } from "./context.ts";
+import { globalSessionManager } from "../context/session";
+import type { Session } from "../context/session";
+import type { AgentEngine } from "../engine/loop";
+import type { Reporter } from "../engine/reporter";
+import { globalApprovalManager } from "./approval";
+import { runWithNotifier } from "./context";
 
 const FEISHU_BASE = "https://open.feishu.cn/open-apis";
 const MAX_REGISTERED_MESSAGES = 50;

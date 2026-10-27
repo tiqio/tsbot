@@ -1,33 +1,29 @@
 /**
- * ch05：工具注册表实现。
+ * 工具注册表。
  *
- * 与原书的差异：execute 变成 async（工具要读文件、起子进程），
- * 所以引擎侧的每一次工具调用都必须 await —— 这是 TS 里"异步传染"的代价，
- * 换来的是不需要为每个工具单独起线程。
+ * 对外只暴露一个 `Registry` 类型和一个 `createRegistry()` 工厂，实现类不导出 ——
+ * 避免 Go 式"interface + struct 两个名字指一件事"的读法成本。
  */
 import { z } from "zod";
-import type { JsonSchema, ToolCall, ToolDefinition, ToolResult } from "../schema/message.ts";
-import type { Tool } from "./tool.ts";
+import type { JsonSchema, ToolCall, ToolDefinition, ToolResult } from "../schema/message";
+import type { Tool } from "./tool";
 
 export interface MiddlewareDecision {
   allowed: boolean;
   reason?: string;
 }
 
-/**
- * 中间件：在执行工具之前拦截。
- * Go 版签名是 func(ctx, call) (bool, string)；这里用对象返回，多一个字段就不用改签名。
- */
+/** 执行前拦截器：审批、限流、审计都挂在这里 */
 export type Middleware = (
   call: ToolCall,
   signal?: AbortSignal,
 ) => Promise<MiddlewareDecision> | MiddlewareDecision;
 
 export interface Registry {
+  register(tool: Tool): Registry;
+  use(middleware: Middleware): Registry;
   /** 当前对模型可见的工具定义 */
   getAvailableTools(): ToolDefinition[];
-  /** 挂载一个执行前拦截器（ch16） */
-  use(middleware: Middleware): this;
   /** 执行一次工具调用；不允许抛异常，失败也返回 ToolResult(isError=true) */
   execute(call: ToolCall, signal?: AbortSignal): Promise<ToolResult>;
 }
@@ -47,12 +43,12 @@ function formatIssues(error: z.ZodError): string {
     .join("; ");
 }
 
-export class ToolRegistry implements Registry {
+class RegistryImpl implements Registry {
   private readonly tools = new Map<string, Tool>();
   private readonly definitions = new Map<string, ToolDefinition>();
   private readonly middlewares: Middleware[] = [];
 
-  register(tool: Tool): this {
+  register(tool: Tool): Registry {
     if (this.tools.has(tool.name)) {
       console.log(`[Warning] 工具 '${tool.name}' 已经被注册，将被覆盖。`);
     }
@@ -62,7 +58,7 @@ export class ToolRegistry implements Registry {
     return this;
   }
 
-  use(middleware: Middleware): this {
+  use(middleware: Middleware): Registry {
     this.middlewares.push(middleware);
     return this;
   }
@@ -81,7 +77,7 @@ export class ToolRegistry implements Registry {
       };
     }
 
-    // 模型给的参数是不可信输入，先过 zod；校验失败当成工具错误回灌，让模型自己修
+    // 模型给的参数是不可信输入，先过 zod；失败当成工具错误回灌，让模型自己修
     const parsed = tool.schema.safeParse(call.arguments);
     if (!parsed.success) {
       return {
@@ -91,22 +87,21 @@ export class ToolRegistry implements Registry {
       };
     }
 
-    // ch16：执行前的拦截链（审批、限流、审计都挂在这里）
     for (const middleware of this.middlewares) {
       const decision = await middleware(call, signal);
-      if (!decision.allowed) {
-        const reason = decision.reason ?? "未说明原因";
-        console.log(`[Registry] ⚠️ 工具 ${call.name} 被 Middleware 拦截: ${reason}`);
-        return {
-          toolCallId: call.id,
-          output: `执行被系统拦截。原因: ${reason}`,
-          isError: true, // 必须是 error，才能强制模型阅读拒绝理由
-        };
-      }
+      if (decision.allowed) continue;
+
+      const reason = decision.reason ?? "未说明原因";
+      console.log(`[Registry] ⚠️ 工具 ${call.name} 被 Middleware 拦截: ${reason}`);
+      return {
+        toolCallId: call.id,
+        output: `执行被系统拦截。原因: ${reason}`,
+        isError: true, // 必须是 error，才能强制模型阅读拒绝理由
+      };
     }
 
     try {
-      const output = await tool.execute(parsed.data, { signal });
+      const output = await tool.run(parsed.data, { signal });
       return { toolCallId: call.id, output, isError: false };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -117,4 +112,8 @@ export class ToolRegistry implements Registry {
       };
     }
   }
+}
+
+export function createRegistry(): Registry {
+  return new RegistryImpl();
 }

@@ -98,6 +98,25 @@ workspace/        沙箱：AGENTS.md、skills、nginx.conf、error.log、ports.m
 4. **主循环四层**：`run`（根 span / 落盘）→ `runTurns`（轮数）→ `runTurn`（一轮三段）
    → `executeOne`（单个工具）。单屏可读完。
 
+## MCP（Model Context Protocol）
+
+`src/mcp/` 是一个最小但守规矩的 MCP 集成，另带一个示例服务端：
+
+| 文件 | 作用 |
+| --- | --- |
+| `types.ts` | 协议里用到的形状（initialize / tools / resources / 内容块） |
+| `connection.ts` | JSON-RPC 2.0 over 换行分隔 stdio：编号、配对、超时、`notifications/cancelled` |
+| `client.ts` | spawn → `initialize` → `notifications/initialized` → `tools/list` → `tools/call` → 关闭 |
+| `bridge.ts` | JSON Schema → `z.fromJSONSchema` → 注册成普通 `Tool`，名字前缀 `mcp__<server>__<tool>` |
+| `server.ts` | 示例服务端：2 个工具 + 2 个资源 + 1 个提示词 |
+
+```bash
+bun run mcp     # 起子进程 → 桥接 → 脚本化 Agent 调用远端工具
+```
+
+桥接之后，主循环完全分不出本地工具和远端工具。差别只剩三处：**名字前缀**、
+**schema 是 JSON Schema 而非 zod**、**执行跨了进程边界**（因此有超时与取消）。
+
 ## 与 Go 版的差异（有意为之）
 
 1. **不引模型 SDK**。Go 版用 `anthropic-sdk-go` / `openai-go`，这里用 `fetch` 直连，

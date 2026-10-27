@@ -12,6 +12,7 @@
     "bench": "bun run src/bin/bench.ts",
     "agentops": "bun run src/bin/agentops.ts",
     "demo": "bun run src/bin/demo.ts",
+    "mcp": "bun run src/bin/mcp-demo.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },

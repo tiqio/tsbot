@@ -1,0 +1,25 @@
+{
+  "name": "tsbot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "go-tiny-claw 的 TypeScript / Bun 移植版：从零构建 Agent Harness",
+  "type": "module",
+  "bin": {
+    "tsbot": "src/bin/claw.ts"
+  },
+  "scripts": {
+    "claw": "bun run src/bin/claw.ts",
+    "bench": "bun run src/bin/bench.ts",
+    "agentops": "bun run src/bin/agentops.ts",
+    "demo": "bun run src/bin/claw.ts --provider mock --dir ./workspace --prompt \"读一下 AGENTS.md 和 nginx.conf，告诉我 502 的原因\"",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.1",
+    "typescript": "^5.9.3"
+  }
+}

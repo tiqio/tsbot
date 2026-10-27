@@ -1,0 +1,7 @@
+node_modules/
+bun.lock
+bun.lockb
+*.tsbuildinfo
+workspace/.claw/traces/
+workspace/.claw/sessions/
+.DS_Store
